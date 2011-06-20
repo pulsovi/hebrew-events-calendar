@@ -890,7 +890,7 @@ class hec_events_widget extends WP_Widget {
 		//date_default_timezone_set(get_option('timezone_string'));
 
 		echo $before_widget;
-		echo $before_title . 'Upcoming Events' . $after_title;
+		echo $before_title . $instance['title'] . $after_title;
 		echo '<ul>';
 		$jd = unixtojd();
 		for ($i = 0; $i < $instance['days']; $i++)
@@ -919,16 +919,20 @@ class hec_events_widget extends WP_Widget {
  
 	function update($new_instance, $old_instance) {
 		$instance = $old_instance;
-		$new_instance = wp_parse_args((array) $new_instance, array('days' => 7));
+		$new_instance = wp_parse_args((array) $new_instance, array('days' => 7, 'title' => 'Upcoming Events'));
 		$instance['days']			= $new_instance['days'];
+		$instance['title']			= $new_instance['title'];
 		return $instance;
 	}
  
 	function form($instance) {
 		$instance = wp_parse_args((array) $instance,
-			array('days' => 7));
+			array('days' => 7, 'title' => 'Upcoming Events'));
 		$days = $instance['days'];
+		$title = $instance['title'];
 ?>
+		<p><label for="<?php echo $this->get_field_id('title'); ?>"><?php _e('Title:'); ?></label>
+		<input class="widefat" id="<?php echo $this->get_field_id('title'); ?>" name="<?php echo $this->get_field_name('title'); ?>" type="text" value="<?php echo esc_attr($title); ?>" /></p>
 		<p><label for="<?php echo $this->get_field_id('days'); ?>"><?php _e('Days:'); ?></label>
 		<input class="widefat" id="<?php echo $this->get_field_id('days'); ?>" name="<?php echo $this->get_field_name('days'); ?>" type="text" value="<?php echo esc_attr($days); ?>" /></p>
 <?php
