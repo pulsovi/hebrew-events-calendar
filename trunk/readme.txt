@@ -10,7 +10,17 @@ An events calendar that allows easy entry of reoccuring events with either Georg
 
 == Description ==
 
-An events calendar that allows easy entry of reoccuring events with either Georgian or Jewish dates.
+An events calendar that allows easy entry of reoccuring events with either Georgian or Jewish dates. Attaches events to posts, pages, or other custom post types.
+
+* Metaboxes for event data on edit post/page
+* Calendar short code: [calendar] or [calendar mon="XX" year="XXXX"]
+* Upcoming events are attached to relevent pages
+* "Upcoming events" widget
+* Dashboard widget for editing "Upcoming Events"
+
+TODO:
+* Documentation
+* Auto create holidays and parashah
 
 == Installation ==
 
