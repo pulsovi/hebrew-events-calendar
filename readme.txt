@@ -6,11 +6,11 @@ Requires at least: 3.0
 Tested up to: 3.1
 Stable tag: trunk
 
-An events calendar that allows easy entry of reoccuring events with either Georgian or Jewish dates.
+An events calendar that allows easy entry of reoccuring events with either Gregorian or Jewish dates.
 
 == Description ==
 
-An events calendar that allows easy entry of reoccuring events with either Georgian or Jewish dates. Attaches events to posts, pages, or other custom post types.
+An events calendar that allows easy entry of reoccuring events with either Gregorian or Jewish dates. Attaches events to posts, pages, or other custom post types.
 
 * Metaboxes for event data on edit post/page
 * Calendar short code: [calendar] or [calendar mon="XX" year="XXXX"]
