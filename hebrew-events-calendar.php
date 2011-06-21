@@ -841,7 +841,7 @@ function hec_post_events($content)
 {
 	global $occurence_range, $hec_options;//, $hec_occurence_limit, $hec_day_limit;	
 
-	if ($hec_post_types[get_post_type()]) {	
+	if ($hec_options['post_types'][get_post_type()]) {	
 		$event =  get_post_meta(get_the_ID(), '_hec_event', true);
 		if ($event != '') {
 			$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
