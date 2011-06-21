@@ -3,7 +3,7 @@
 Plugin Name: Hebrew Events Calendar
 Plugin URI: http://wordpress.org/extend/plugins/hebrew-events-calendar/
 Description: A hebrew friendly events calendar
-Version: 0.2
+Version: 0.3
 Author: Yitzchak ben Avraham
 Author URI: http://wordpress.org/extend/plugins/profile/yitzi
 License: GPL2
