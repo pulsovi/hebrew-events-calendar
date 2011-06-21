@@ -652,7 +652,7 @@ function hec_get_occurences($jd, $count, $show_all=false, $post_id=null, $first_
 	if (!is_null($post_id)) $query_args['post__in'] = array($post_id);
 	$the_query = new WP_Query( $query_args );
 	
-	if ($the_query->have_posts() == 0) return array();
+	if (!$the_query->have_posts()) return array();
 	
 	for ($i=($first_only || $start_only) ? 0 : -9; $i<$count; $i++)
 	{
