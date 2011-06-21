@@ -44,10 +44,17 @@ None yet
 
 == Changelog ==
 
+= 0.3
+* Fixed pagination query problem in hec_get_occurences
+* Fixed missing upcoming events in pages/posts
+
 = 0.2
 * Initial checkin
 
 == Upgrade Notice ==
 
+= 0.3
+Upcoming Events widget & Upcoming occurences on pages now work.
+
 = 0.2
-* Initial checkin
+Initial checkin
