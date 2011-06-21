@@ -648,11 +648,11 @@ function hec_get_occurences($jd, $count, $show_all=false, $post_id=null, $first_
 	$post_types = array();
 	foreach ($hec_options['post_types'] as $post_type => $show)
 		if ($show) $post_types[] = $post_type;
-	$query_args = array( 'post_type' => $post_types, 'meta_key' => '_hec_event' );
+	$query_args = array( 'post_type' => $post_types, 'meta_key' => '_hec_event' , 'nopaging' => true);
 	if (!is_null($post_id)) $query_args['post__in'] = array($post_id);
 	$the_query = new WP_Query( $query_args );
 	
-	if ($the_query->found_posts == 0) return;
+	if ($the_query->have_posts() == 0) return array();
 	
 	for ($i=($first_only || $start_only) ? 0 : -9; $i<$count; $i++)
 	{
@@ -810,7 +810,7 @@ function hec_get_occurences($jd, $count, $show_all=false, $post_id=null, $first_
 			}
 		}
 	}
-	if ($first_only) return null;
+	if ($first_only) return array();
 	usort($times, 'hec_o_cmp');
 	wp_reset_postdata();
 	return $times;
