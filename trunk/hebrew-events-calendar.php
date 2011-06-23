@@ -58,7 +58,7 @@ function hec_query_vars($vars) {
 
 function hec_encode_text($text)
 {
-	return str_replace(',','\,', str_replace(';', '\;', str_replace("\n", '\n', str_replace("\\", '\\', $text))));
+	return str_replace(',','\,', str_replace(';', '\;', str_replace("\n", '\n', str_replace("\\", '\\', html_entity_decode($text, ENT_QUOTES, 'UTF-8')))));
 }
 
 function hec_ics() {
@@ -67,8 +67,8 @@ function hec_ics() {
 		header('Content-type: text/calendar');
 		echo "BEGIN:VCALENDAR\n";
 		echo "VERSION:2.0\n";
-		echo "X-WR-CALNAME:" . hec_encode_text($hec_options['ics_title']) . "\n";
-		echo "X-WR-CALDESC:" . hec_encode_text($hec_options['ics_description']) . "\n";
+		echo "X-WR-CALNAME;CHARSET=UTF-8:" . hec_encode_text($hec_options['ics_title']) . "\n";
+		echo "X-WR-CALDESC;CHARSET=UTF-8:" . hec_encode_text($hec_options['ics_description']) . "\n";
 		echo "X-PUBLISHED-TTL:PT360M\n";
 
 		foreach (hec_get_occurences()/*unixtojd(), $hec_options['day_limit']) */as $occurence)
@@ -77,11 +77,11 @@ function hec_ics() {
 			echo "UID:" . $occurence->post_id . '-' . unixtojd($occurence->start) . "\n";
 			echo gmstrftime("DTSTART:%Y%m%dT%H%M00Z\n", $occurence->start);
 			if (!is_null($occurence->stop)) echo gmstrftime("DTEND:%Y%m%dT%H%M00Z\n", $occurence->stop);
-			echo "SUMMARY:" . hec_encode_text($occurence->title) . "\n";
+			echo "SUMMARY;CHARSET=UTF-8:" . hec_encode_text($occurence->title) . "\n";
 			if (!is_null($occurence->description) && !is_null($occurence->notes))
-				echo "DESCRIPTION:" . hec_encode_text($occurence->description . "\n\n" . $occurence->notes) . "\n";
+				echo "DESCRIPTION;CHARSET=UTF-8:" . hec_encode_text($occurence->description . "\n\n" . $occurence->notes) . "\n";
 			else if (!is_null($occurence->description))
-				echo "DESCRIPTION:" . hec_encode_text($occurence->description) . "\n";
+				echo "DESCRIPTION;CHARSET=UTF-8:" . hec_encode_text($occurence->description) . "\n";
 			else if (!is_null($occurence->notes)) echo "DESCRIPTION:" . hec_encode_text($occurence->notes) . "\n";
 			echo "URL:" . hec_encode_text(get_permalink($occurence->post_id)) . "\n";
 			echo "END:VEVENT\n";
@@ -160,21 +160,24 @@ function hec_widgets_init()
 function hec_init() {
 	global $hec_options, $wp_rewrite;
 
-	$hec_options = get_option('hec_options');
-	if (!$hec_options)
-		update_option('hec_options',
-			$hec_options = array(
-				'latitude' => ini_get('date.default_latitude'),
-				'longitude' => ini_get('date.default_longitude'),
-				'sunrise_zenith' => ini_get('date.sunrise_zenith'),
-				'sunset_zenith' => ini_get('date.sunset_zenith'),
-				'post_types' => array('page' => 1, 'post' => 1),
-				'ics_subscription_text' => 'Subscribe to calendar using <a href="%3$s">Webcal (Outlook, Apple iCal, etc.)</a> or <a title="Add to Google Calendar" href="http://www.google.com/calendar/render?cid=%2$s">Google Calendar</a>.',
-				'occurence_limit' => 10,
-				'day_limit' => 390,
-				'ics_permalink' => 'calendar.ics',
-				'ics_title' => 'My Events',
-				'ics_description' => 'Description of my events.'));
+	$hec_old_options = get_option('hec_options', array());
+	$hec_options = array_merge(
+		array(
+			'latitude' => ini_get('date.default_latitude'),
+			'longitude' => ini_get('date.default_longitude'),
+			'sunrise_zenith' => ini_get('date.sunrise_zenith'),
+			'sunset_zenith' => ini_get('date.sunset_zenith'),
+			'post_types' => array('page' => 1, 'post' => 1),
+			'ics_subscription_text' => 'Subscribe to calendar using <a href="%3$s">Webcal (Outlook, Apple iCal, etc.)</a> or <a title="Add to Google Calendar" href="http://www.google.com/calendar/render?cid=%2$s">Google Calendar</a>.',
+			'occurence_limit' => 10,
+			'day_limit' => 390,
+			'ics_permalink' => 'calendar.ics',
+			'ics_title' => 'My Events',
+			'ics_description' => 'Description of my events.'),
+		$hec_old_options);
+		
+	if ($hec_old_options != $hec_options)
+		update_option('hec_options', $hec_options);
 				
 	if (!isset($wp_rewrite->rules, $hec_options['ics_permalink']))
 		$wp_rewrite->flush_rules();
@@ -581,6 +584,7 @@ function hec_admin_init() { // whitelist options
 	add_settings_field('hec_ics_permalink', 'Permalink', 'hec_text_options_field', 'hec_options', 'hec_ics', array('name' => 'ics_permalink', 'label_for' => 'hec_ics_permalink'));  
 	add_settings_field('hec_ics_title', 'Title', 'hec_text_options_field', 'hec_options', 'hec_ics', array('name' => 'ics_title', 'label_for' => 'hec_ics_title'));  
 	add_settings_field('hec_ics_description', 'Description', 'hec_text_options_field', 'hec_options', 'hec_ics', array('name' => 'ics_description', 'label_for' => 'hec_ics_description'));  
+	add_settings_field('hec_ics_subscription_text', 'Subscription Text', 'hec_textarea_options_field', 'hec_options', 'hec_ics', array('name' => 'ics_subscription_text', 'label_for' => 'hec_ics_subscription_text'));  
 	//add_settings_field('hec_post_types', 'Post Types', 'hec_sunset_zenith_field', 'hec_options', 'hec_settings');  
 	add_settings_section('hec_post_types', 'Post Types', 'hec_post_types_section_text', 'hec_options');
 	foreach (get_post_types(array('public' => 1, 'show_ui' => 1), 'objects') as $post_type)
@@ -598,7 +602,7 @@ function hec_sanitize_options($options) {
 }
 
 function hec_ics_section_text() {  
-	echo '<p>Settings for the ICS feed.</p>';  
+	echo '<p>Settings for the ICS feed. In subscription text field %1$s = URL of feed, %2$s = encoded form of URL for HTML queries, %3$s = Webcal URL of feed, and %4$s = encoded form of Webcal URL for HTML queries.</p>';
 }
 
 function hec_settings_section_text() {  
@@ -612,6 +616,11 @@ function hec_post_types_section_text() {
 function hec_text_options_field($args) {  
 	global $hec_options;
 	echo '<input id="' . $args['label_for'] . '" name="hec_options[' . $args['name']. ']" size="40" type="text" value="' . $hec_options[$args['name']] . '" />';
+} 
+
+function hec_textarea_options_field($args) {  
+	global $hec_options;
+	echo '<textarea id="' . $args['label_for'] . '" class="theEditor" rows="5" cols="40" name="hec_options[' . $args['name']. ']">' . htmlentities($hec_options[$args['name']]) . '</textarea>';
 } 
 
 function hec_checkbox_options_field($args) {  
@@ -630,6 +639,7 @@ function hec_admin_menu() {
 
 function hec_options_page()
 {
+	wp_tiny_mce(true, array("editor_selector" => "theEditor"));
 	echo '<div class="wrap">';
 	echo '<h2>Hebrew Events Calendar Options</h2>';
 	echo '<form method="post" action="options.php">';
