@@ -26,7 +26,7 @@ $hec_year_types = array(
 add_action('init', 'hec_init');
 add_action('admin_init', 'hec_admin_init');
 add_action('admin_menu', 'hec_admin_menu');
-add_action('save_post', 'hec_save_postdata' );
+add_action('save_post', 'hec_save_postdata');
 add_action('add_meta_boxes', 'hec_register_meta_box');
 add_action('widgets_init', 'hec_widgets_init');
 add_action('wp_dashboard_setup', 'hec_dashboard_setup');
@@ -34,19 +34,24 @@ add_filter('the_content', 'hec_post_events', 9);
 add_shortcode('calendar', 'hec_calendar_sc');  
 add_filter('query_vars','hec_query_vars');
 add_action('template_redirect', 'hec_ics');
-register_activation_hook( __FILE__, 'hec_activate' );
-add_filter( 'generate_rewrite_rules', 'hec_rewrite' );
+add_action('update_option_hec_options', 'hec_update_options', 10, 2);
+add_filter( 'generate_rewrite_rules', 'hec_rewrite');
 
-function hec_rewrite( $wp_rewrite ) {
-	$wp_rewrite->rules = array(get_option('hec_ics_permalink', 'calendar.ics') => 'index.php?hec_ics=all') + $wp_rewrite->rules;
-}
-
-function hec_activate() {
-	global $wp_rewrite;
+function hec_update_options($old, $new) {
+	global $hec_options, $wp_rewrite;
+	$hec_options = $new;
+	// if hec_options has been updated then flush the permalinks in case ics_permalink changed
 	$wp_rewrite->flush_rules();
 }
 
+function hec_rewrite( $wp_rewrite ) {
+	global $hec_options;
+	// set the permalink the ICS feed
+	$wp_rewrite->rules = array($hec_options['ics_permalink'] => 'index.php?hec_ics=all') + $wp_rewrite->rules;
+}
+
 function hec_query_vars($vars) {
+	// add the option for the ICS feed
 	$vars[] = 'hec_ics';
 	return $vars;
 }
@@ -153,7 +158,7 @@ function hec_widgets_init()
 }
 
 function hec_init() {
-	global /*$hec_post_types, $hec_latitude, $hec_longitude, $hec_sunrise_zenith, $hec_sunset_zenith, $hec_occurence_limit, $hec_day_limit, */$hec_options;
+	global $hec_options, $wp_rewrite;
 
 	$hec_options = get_option('hec_options');
 	if (!$hec_options)
@@ -169,22 +174,11 @@ function hec_init() {
 				'ics_permalink' => 'calendar.ics',
 				'ics_title' => 'My Events',
 				'ics_description' => 'Description of my events.'));
+				
+	if (!isset($wp_rewrite->rules, $hec_options['ics_permalink']))
+		$wp_rewrite->flush_rules();
 
-	ini_set('date.default_latitude', $hec_options['latitude']);
-	ini_set('date.default_longitude', $hec_options['longitude']);
-	ini_set('date.sunrise_zenith', $hec_options['sunrise_zenith']);
-	ini_set('date.sunset_zenith', $hec_options['sunset_zenith']);
 	date_default_timezone_set(get_option('timezone_string'));
-
-	/*$hec_post_types = get_option('hec_post_types', array('page' => 1, 'post' => 1));
-	$hec_occurence_limit = get_option('hec_occurence_limit', 10);
-	$hec_day_limit = get_option('hec_day_limit', 390);
-
-	ini_set('date.default_latitude', $hec_latitude = get_option('hec_latitude', ini_get('date.default_latitude')));
-	ini_set('date.default_longitude', $hec_longitude = get_option('hec_longitude', ini_get('date.default_longitude')));
-	ini_set('date.sunrise_zenith', $hec_sunrise_zenith = get_option('hec_sunrise_zenith', ini_get('date.sunrise_zenith')));
-	ini_set('date.sunset_zenith', $hec_sunset_zenith = get_option('hec_sunset_zenith', ini_get('date.sunset_zenith')));
-	date_default_timezone_set(get_option('timezone_string'));*/
 
 /*	register_post_type(
 		'hec_event',
@@ -264,6 +258,10 @@ function hec_save_postdata( $post_ID ) {
 		if ($_REQUEST['hec_day'] != '') $event['day'] = (int)$_REQUEST['hec_day'];
 		if ($_REQUEST['hec_month'] != '') $event['month'] = (int)$_REQUEST['hec_month'];
 		if ($_REQUEST['hec_year'] != '') $event['year'] = (int)$_REQUEST['hec_year'];
+		if ($_REQUEST['hec_latitude'] != '') $event['latitude'] = (float)$_REQUEST['hec_latitude'];
+		if ($_REQUEST['hec_longitude'] != '') $event['longitude'] = (float)$_REQUEST['hec_longitude'];
+		if ($_REQUEST['hec_sunset_zenith'] != '') $event['sunset_zenith'] = (float)$_REQUEST['hec_sunset_zenith'];
+		if ($_REQUEST['hec_sunrise_zenith'] != '') $event['sunrise_zenith'] = (float)$_REQUEST['hec_sunrise_zenith'];
 		if (isset($_REQUEST['hec_sunrise'])) $event['sunrise'] = 1;
 
 		$t = rtrim(trim(strtoupper($_REQUEST['hec_time'])), 'M');
@@ -272,7 +270,7 @@ function hec_save_postdata( $post_ID ) {
 			if (substr($t, -1) != 'A' && substr($t, -1) != 'P') $event['time_offset'] = true;
 			$parts = explode(':', rtrim($t, 'AP'));
 			$event['time'] = ($event['time_offset']) ? 
-			((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(int)$parts[1])) :
+			((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(((int)$parts[0] < 0) ? -(int)$parts[1] : (int)$parts[1]))) :
 			(((count($parts) == 1) ? (int)$parts[0]*60 : ((int)$parts[0]*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
 			if (substr($t,0,2) == '-0') $event['time'] = -$event['time'];
 		}
@@ -421,6 +419,26 @@ function hec_event_mb() {
 		<tr title="Stop date of event window. After this date the event will not be shown.">
 			<th class="left"><label for="hec_stop_date">Stop Date</label></th>
 			<td><input name="hec_stop_date" type="text" id="hec_stop_date" value="<?php if (isset($event['stop_date'])) echo strftime('%m/%d/%Y', jdtounix($event['stop_date'])); ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_latitude">Latitude</label></th>
+			<td><input name="hec_latitude" type="text" id="hec_latitude" value="<?php echo $event['latitude']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_longitude">Longitude</label></th>
+			<td><input name="hec_longitude" type="text" id="hec_longitude" value="<?php echo $event['longitude']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_sunset_zenith">Sunset Zenith</label></th>
+			<td><input name="hec_sunset_zenith" type="text" id="hec_sunset_zenith" value="<?php echo $event['sunset_zenith']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_sunrise_zenith">Sunrise Zenith</label></th>
+			<td><input name="hec_sunrise_zenith" type="text" id="hec_sunrise_zenith" value="<?php echo $event['sunrise_zenith']; ?>"/></td>
 		</tr>
 		
 	</table>
@@ -611,27 +629,11 @@ function hec_admin_menu() {
 
 function hec_options_page()
 {
-	//global /*$hec_post_types, $hec_latitude, $hec_longitude, $hec_sunrise_zenith, $hec_sunset_zenith, $hec_occurence_limit, $hec_day_limit*/;
 	echo '<div class="wrap">';
 	echo '<h2>Hebrew Events Calendar Options</h2>';
 	echo '<form method="post" action="options.php">';
 	settings_fields( 'hec_options' );
 	do_settings_sections('hec_options');
-	/*echo '<table class="form-table">';
-	echo '<tr valign="top"><th scope="row">Latitude</th><td><input type="text" name="hec_latitude" value="' . $hec_latitude . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Longitude</th><td><input type="text" name="hec_longitude" value="' . $hec_longitude . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Sunset Zenith</th><td><input type="text" name="hec_sunset_zenith" value="' . $hec_sunset_zenith . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Sunrise Zenith</th><td><input type="text" name="hec_sunrise_zenith" value="' . $hec_sunrise_zenith . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Occurence Limit</th><td><input type="text" name="hec_occurence_limit" value="' . $hec_occurence_limit . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Day Limit</th><td><input type="text" name="hec_day_limit" value="' . $hec_day_limit . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Calendar ICS Permalink</th><td><input type="text" name="hec_calendar_ics" value="' . get_option('hec_calendar_ics', 'calendar.ics') . '"/></td></tr>';
-	foreach (get_post_types(array('public' => 1, 'show_ui' => 1), 'objects') as $post_type)
-	{
-		echo '<tr valign="top"><th scope="row">' . $post_type->labels->name . '</th><td><input type="checkbox" name="hec_post_types[' . $post_type->name . ']"';
-		if ($hec_post_types[$post_type->name]) echo ' checked';
-		echo '/></td></tr>';
-	}
-	echo '</table>';*/
 	echo '<p class="submit"><input type="submit" class="button-primary" value="Save Changes"/></p></form></div>';
 }
 
@@ -697,8 +699,6 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 
 		$midnight = mktime(0, 0, 0, $month, $day, $year);
 		$midnight0 = mktime(0, 0, 0, $month0, $day0, $year0);
-		$sunset0 = date_sunset($midnight-1, SUNFUNCS_RET_TIMESTAMP);
-		$sunset1 = date_sunset($midnight, SUNFUNCS_RET_TIMESTAMP);
 		$weekday = jddayofweek($julian_date+$i);
 
 		$the_query->rewind_posts();
@@ -791,8 +791,14 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 			if ($event['sunrise'] && $hebrew) $j1 = false; 
 			if (!$j0 && !$j1) continue;
 	
-			$t = (($event['sunrise']) ? date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP) :
-			(($hebrew) ? (($j0) ? $sunset0 : $sunset1) : $midnight)) + $offset;
+			$latitude = (isset($event['latitude'])) ? $event['latitude'] : $hec_options['latitude'];
+			$longitude = (isset($event['longitude'])) ? $event['longitude'] : $hec_options['longitude'];
+			$sunset_zenith = (isset($event['sunset_zenith'])) ? $event['sunset_zenith'] : $hec_options['sunset_zenith'];
+			$sunrise_zenith = (isset($event['sunrise_zenith'])) ? $event['sunrise_zenith'] : $hec_options['sunrise_zenith'];
+	
+			$t = (($event['sunrise']) ?
+				date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunrise_zenith) :
+				(($hebrew) ? date_sunset(($j0) ? $midnight-1 : $midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) : $midnight)) + $offset;
 
 			$start_in_range = ($t >= $midnight && $t < ($midnight + 86400));
 			if ($start_in_range && $first_only) return $t;
@@ -802,8 +808,8 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 			{
 				$stop = (isset($event['duration_days'])) ?
 					((($hebrew) ?
-						date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP) :
-						($t + 86400*$event['duration_days'])) + $offset)
+						date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
+						($t + 86400*$event['duration_days'])))
 					: $t;
 				if (isset($event['duration_minutes'])) $stop += 60*(int)$event['duration_minutes'];
 			}
