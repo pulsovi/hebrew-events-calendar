@@ -26,7 +26,7 @@ $hec_year_types = array(
 add_action('init', 'hec_init');
 add_action('admin_init', 'hec_admin_init');
 add_action('admin_menu', 'hec_admin_menu');
-add_action('save_post', 'hec_save_postdata' );
+add_action('save_post', 'hec_save_postdata');
 add_action('add_meta_boxes', 'hec_register_meta_box');
 add_action('widgets_init', 'hec_widgets_init');
 add_action('wp_dashboard_setup', 'hec_dashboard_setup');
@@ -34,19 +34,24 @@ add_filter('the_content', 'hec_post_events', 9);
 add_shortcode('calendar', 'hec_calendar_sc');  
 add_filter('query_vars','hec_query_vars');
 add_action('template_redirect', 'hec_ics');
-register_activation_hook( __FILE__, 'hec_activate' );
-add_filter( 'generate_rewrite_rules', 'hec_rewrite' );
+add_action('update_option_hec_options', 'hec_update_options', 10, 2);
+add_filter( 'generate_rewrite_rules', 'hec_rewrite');
 
-function hec_rewrite( $wp_rewrite ) {
-	$wp_rewrite->rules = array(get_option('hec_ics_permalink', 'calendar.ics') => 'index.php?hec_ics=all') + $wp_rewrite->rules;
-}
-
-function hec_activate() {
-	global $wp_rewrite;
+function hec_update_options($old, $new) {
+	global $hec_options, $wp_rewrite;
+	$hec_options = $new;
+	// if hec_options has been updated then flush the permalinks in case ics_permalink changed
 	$wp_rewrite->flush_rules();
 }
 
+function hec_rewrite( $wp_rewrite ) {
+	global $hec_options;
+	// set the permalink the ICS feed
+	$wp_rewrite->rules = array($hec_options['ics_permalink'] => 'index.php?hec_ics=all') + $wp_rewrite->rules;
+}
+
 function hec_query_vars($vars) {
+	// add the option for the ICS feed
 	$vars[] = 'hec_ics';
 	return $vars;
 }
@@ -153,7 +158,7 @@ function hec_widgets_init()
 }
 
 function hec_init() {
-	global /*$hec_post_types, $hec_latitude, $hec_longitude, $hec_sunrise_zenith, $hec_sunset_zenith, $hec_occurence_limit, $hec_day_limit, */$hec_options;
+	global $hec_options, $wp_rewrite;
 
 	$hec_options = get_option('hec_options');
 	if (!$hec_options)
@@ -169,18 +174,11 @@ function hec_init() {
 				'ics_permalink' => 'calendar.ics',
 				'ics_title' => 'My Events',
 				'ics_description' => 'Description of my events.'));
+				
+	if (!isset($wp_rewrite->rules, $hec_options['ics_permalink']))
+		$wp_rewrite->flush_rules();
 
 	date_default_timezone_set(get_option('timezone_string'));
-
-	/*$hec_post_types = get_option('hec_post_types', array('page' => 1, 'post' => 1));
-	$hec_occurence_limit = get_option('hec_occurence_limit', 10);
-	$hec_day_limit = get_option('hec_day_limit', 390);
-
-	ini_set('date.default_latitude', $hec_latitude = get_option('hec_latitude', ini_get('date.default_latitude')));
-	ini_set('date.default_longitude', $hec_longitude = get_option('hec_longitude', ini_get('date.default_longitude')));
-	ini_set('date.sunrise_zenith', $hec_sunrise_zenith = get_option('hec_sunrise_zenith', ini_get('date.sunrise_zenith')));
-	ini_set('date.sunset_zenith', $hec_sunset_zenith = get_option('hec_sunset_zenith', ini_get('date.sunset_zenith')));
-	date_default_timezone_set(get_option('timezone_string'));*/
 
 /*	register_post_type(
 		'hec_event',
@@ -631,27 +629,11 @@ function hec_admin_menu() {
 
 function hec_options_page()
 {
-	//global /*$hec_post_types, $hec_latitude, $hec_longitude, $hec_sunrise_zenith, $hec_sunset_zenith, $hec_occurence_limit, $hec_day_limit*/;
 	echo '<div class="wrap">';
 	echo '<h2>Hebrew Events Calendar Options</h2>';
 	echo '<form method="post" action="options.php">';
 	settings_fields( 'hec_options' );
 	do_settings_sections('hec_options');
-	/*echo '<table class="form-table">';
-	echo '<tr valign="top"><th scope="row">Latitude</th><td><input type="text" name="hec_latitude" value="' . $hec_latitude . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Longitude</th><td><input type="text" name="hec_longitude" value="' . $hec_longitude . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Sunset Zenith</th><td><input type="text" name="hec_sunset_zenith" value="' . $hec_sunset_zenith . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Sunrise Zenith</th><td><input type="text" name="hec_sunrise_zenith" value="' . $hec_sunrise_zenith . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Occurence Limit</th><td><input type="text" name="hec_occurence_limit" value="' . $hec_occurence_limit . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Day Limit</th><td><input type="text" name="hec_day_limit" value="' . $hec_day_limit . '"/></td></tr>';
-	echo '<tr valign="top"><th scope="row">Calendar ICS Permalink</th><td><input type="text" name="hec_calendar_ics" value="' . get_option('hec_calendar_ics', 'calendar.ics') . '"/></td></tr>';
-	foreach (get_post_types(array('public' => 1, 'show_ui' => 1), 'objects') as $post_type)
-	{
-		echo '<tr valign="top"><th scope="row">' . $post_type->labels->name . '</th><td><input type="checkbox" name="hec_post_types[' . $post_type->name . ']"';
-		if ($hec_post_types[$post_type->name]) echo ' checked';
-		echo '/></td></tr>';
-	}
-	echo '</table>';*/
 	echo '<p class="submit"><input type="submit" class="button-primary" value="Save Changes"/></p></form></div>';
 }
 
