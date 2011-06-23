@@ -169,6 +169,7 @@ function hec_init() {
 				'sunrise_zenith' => ini_get('date.sunrise_zenith'),
 				'sunset_zenith' => ini_get('date.sunset_zenith'),
 				'post_types' => array('page' => 1, 'post' => 1),
+				'ics_subscription_text' => 'Subscribe to calendar using <a href="%3$s">Webcal (Outlook, Apple iCal, etc.)</a> or <a title="Add to Google Calendar" href="http://www.google.com/calendar/render?cid=%2$s">Google Calendar</a>.',
 				'occurence_limit' => 10,
 				'day_limit' => 390,
 				'ics_permalink' => 'calendar.ics',
@@ -891,7 +892,8 @@ function hec_post_events($content)
 function hec_ics_link() {
 	global $hec_options;
 	$url = home_url($hec_options['ics_permalink']);
-	return 'Subscribe to calendar using <a href="' . str_replace('http:', 'webcal:', $url) . '">Webcal (Outlook, Apple iCal, etc.)</a> or <a title="Add to Google Calendar" href="http://www.google.com/calendar/render?cid=' . urlencode($url) . '">Google Calendar</a>.';
+	$webcal = preg_replace('/^https?:/', 'webcal:', $url);
+	return sprintf($hec_options['ics_subscribe_text'], $url, urlencode($url), $webcal, urlencode($webcal));
 }
 
 class hec_events_widget extends WP_Widget {
