@@ -170,10 +170,6 @@ function hec_init() {
 				'ics_title' => 'My Events',
 				'ics_description' => 'Description of my events.'));
 
-	ini_set('date.default_latitude', $hec_options['latitude']);
-	ini_set('date.default_longitude', $hec_options['longitude']);
-	ini_set('date.sunrise_zenith', $hec_options['sunrise_zenith']);
-	ini_set('date.sunset_zenith', $hec_options['sunset_zenith']);
 	date_default_timezone_set(get_option('timezone_string'));
 
 	/*$hec_post_types = get_option('hec_post_types', array('page' => 1, 'post' => 1));
@@ -264,6 +260,10 @@ function hec_save_postdata( $post_ID ) {
 		if ($_REQUEST['hec_day'] != '') $event['day'] = (int)$_REQUEST['hec_day'];
 		if ($_REQUEST['hec_month'] != '') $event['month'] = (int)$_REQUEST['hec_month'];
 		if ($_REQUEST['hec_year'] != '') $event['year'] = (int)$_REQUEST['hec_year'];
+		if ($_REQUEST['hec_latitude'] != '') $event['latitude'] = (float)$_REQUEST['hec_latitude'];
+		if ($_REQUEST['hec_longitude'] != '') $event['longitude'] = (float)$_REQUEST['hec_longitude'];
+		if ($_REQUEST['hec_sunset_zenith'] != '') $event['sunset_zenith'] = (float)$_REQUEST['hec_sunset_zenith'];
+		if ($_REQUEST['hec_sunrise_zenith'] != '') $event['sunrise_zenith'] = (float)$_REQUEST['hec_sunrise_zenith'];
 		if (isset($_REQUEST['hec_sunrise'])) $event['sunrise'] = 1;
 
 		$t = rtrim(trim(strtoupper($_REQUEST['hec_time'])), 'M');
@@ -272,7 +272,7 @@ function hec_save_postdata( $post_ID ) {
 			if (substr($t, -1) != 'A' && substr($t, -1) != 'P') $event['time_offset'] = true;
 			$parts = explode(':', rtrim($t, 'AP'));
 			$event['time'] = ($event['time_offset']) ? 
-			((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(int)$parts[1])) :
+			((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(((int)$parts[0] < 0) ? -(int)$parts[1] : (int)$parts[1]))) :
 			(((count($parts) == 1) ? (int)$parts[0]*60 : ((int)$parts[0]*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
 			if (substr($t,0,2) == '-0') $event['time'] = -$event['time'];
 		}
@@ -421,6 +421,26 @@ function hec_event_mb() {
 		<tr title="Stop date of event window. After this date the event will not be shown.">
 			<th class="left"><label for="hec_stop_date">Stop Date</label></th>
 			<td><input name="hec_stop_date" type="text" id="hec_stop_date" value="<?php if (isset($event['stop_date'])) echo strftime('%m/%d/%Y', jdtounix($event['stop_date'])); ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_latitude">Latitude</label></th>
+			<td><input name="hec_latitude" type="text" id="hec_latitude" value="<?php echo $event['latitude']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_longitude">Longitude</label></th>
+			<td><input name="hec_longitude" type="text" id="hec_longitude" value="<?php echo $event['longitude']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_sunset_zenith">Sunset Zenith</label></th>
+			<td><input name="hec_sunset_zenith" type="text" id="hec_sunset_zenith" value="<?php echo $event['sunset_zenith']; ?>"/></td>
+		</tr>
+		
+		<tr>
+			<th class="left"><label for="hec_sunrise_zenith">Sunrise Zenith</label></th>
+			<td><input name="hec_sunrise_zenith" type="text" id="hec_sunrise_zenith" value="<?php echo $event['sunrise_zenith']; ?>"/></td>
 		</tr>
 		
 	</table>
@@ -697,8 +717,6 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 
 		$midnight = mktime(0, 0, 0, $month, $day, $year);
 		$midnight0 = mktime(0, 0, 0, $month0, $day0, $year0);
-		$sunset0 = date_sunset($midnight-1, SUNFUNCS_RET_TIMESTAMP);
-		$sunset1 = date_sunset($midnight, SUNFUNCS_RET_TIMESTAMP);
 		$weekday = jddayofweek($julian_date+$i);
 
 		$the_query->rewind_posts();
@@ -791,8 +809,14 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 			if ($event['sunrise'] && $hebrew) $j1 = false; 
 			if (!$j0 && !$j1) continue;
 	
-			$t = (($event['sunrise']) ? date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP) :
-			(($hebrew) ? (($j0) ? $sunset0 : $sunset1) : $midnight)) + $offset;
+			$latitude = (isset($event['latitude'])) ? $event['latitude'] : $hec_options['latitude'];
+			$longitude = (isset($event['longitude'])) ? $event['longitude'] : $hec_options['longitude'];
+			$sunset_zenith = (isset($event['sunset_zenith'])) ? $event['sunset_zenith'] : $hec_options['sunset_zenith'];
+			$sunrise_zenith = (isset($event['sunrise_zenith'])) ? $event['sunrise_zenith'] : $hec_options['sunrise_zenith'];
+	
+			$t = (($event['sunrise']) ?
+				date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunrise_zenith) :
+				(($hebrew) ? date_sunset(($j0) ? $midnight-1 : $midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) : $midnight)) + $offset;
 
 			$start_in_range = ($t >= $midnight && $t < ($midnight + 86400));
 			if ($start_in_range && $first_only) return $t;
@@ -802,8 +826,8 @@ function hec_get_occurences($args = array(), $query_args = array()) //$jd, $day_
 			{
 				$stop = (isset($event['duration_days'])) ?
 					((($hebrew) ?
-						date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP) :
-						($t + 86400*$event['duration_days'])) + $offset)
+						date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
+						($t + 86400*$event['duration_days'])))
 					: $t;
 				if (isset($event['duration_minutes'])) $stop += 60*(int)$event['duration_minutes'];
 			}
