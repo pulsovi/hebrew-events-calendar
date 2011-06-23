@@ -487,7 +487,7 @@ function hec_event_mb() {
 		</tbody>
 	</table><?php
 }
-			
+
 function hec_occurences_mb() {
 	global $post, $hec_weekdays, $hec_months, $hec_year_types, $hec_options;//$hec_occurence_limit, $hec_day_limit;
 	// Use nonce for verification
@@ -903,7 +903,7 @@ function hec_ics_link() {
 	global $hec_options;
 	$url = home_url($hec_options['ics_permalink']);
 	$webcal = preg_replace('/^https?:/', 'webcal:', $url);
-	return sprintf($hec_options['ics_subscribe_text'], $url, urlencode($url), $webcal, urlencode($webcal));
+	return sprintf($hec_options['ics_subscription_text'], $url, urlencode($url), $webcal, urlencode($webcal));
 }
 
 class hec_events_widget extends WP_Widget {
@@ -941,28 +941,35 @@ class hec_events_widget extends WP_Widget {
 			}
 		}
 		echo '</ul>';
-		echo '<div style="margin-top:10pt;">' . hec_ics_link() . '</div>';
+		if ($instance['subscribe']) echo '<div style="margin-top:10pt;">' . hec_ics_link() . '</div>';
 		echo $after_widget;
 	}
  
 	function update($new_instance, $old_instance) {
+		$new_instance['subscribe'] = isset($new_instance['subscribe']);
+		return array_merge(array('days' => 7, 'title' => 'Upcoming Events', 'subscribe' => true), $old_instance, $new_instance);
 		$instance = $old_instance;
-		$new_instance = wp_parse_args((array) $new_instance, array('days' => 7, 'title' => 'Upcoming Events'));
+		$new_instance = wp_parse_args((array)$new_instance, array('days' => 7, 'title' => 'Upcoming Events', 'subscribe' => 1));
 		$instance['days']			= $new_instance['days'];
 		$instance['title']			= $new_instance['title'];
+		if (isset($new_instance['subscribe'])) $instance['subscribe'] = 1;
 		return $instance;
 	}
  
 	function form($instance) {
-		$instance = wp_parse_args((array) $instance,
-			array('days' => 7, 'title' => 'Upcoming Events'));
-		$days = $instance['days'];
-		$title = $instance['title'];
+		extract(array_merge(array('days' => 7, 'title' => 'Upcoming Events', 'subscribe' => true), $instance));
+		/*$instance = wp_parse_args((array)$instance,
+			array('days' => 7, 'title' => 'Upcoming Events', 'subscribe' => 1));
+		extract($instance);*/
 ?>
 		<p><label for="<?php echo $this->get_field_id('title'); ?>"><?php _e('Title:'); ?></label>
 		<input class="widefat" id="<?php echo $this->get_field_id('title'); ?>" name="<?php echo $this->get_field_name('title'); ?>" type="text" value="<?php echo esc_attr($title); ?>" /></p>
 		<p><label for="<?php echo $this->get_field_id('days'); ?>"><?php _e('Days:'); ?></label>
-		<input class="widefat" id="<?php echo $this->get_field_id('days'); ?>" name="<?php echo $this->get_field_name('days'); ?>" type="text" value="<?php echo esc_attr($days); ?>" /></p>
+		<input id="<?php echo $this->get_field_id('days'); ?>" size="4" name="<?php echo $this->get_field_name('days'); ?>" type="text" value="<?php echo esc_attr($days); ?>" /></p>
+		<p>
+		<input class="checkbox" id="<?php echo $this->get_field_id('subscribe'); ?>" name="<?php echo $this->get_field_name('subscribe'); ?>" type="checkbox" <?php checked($subscribe,true ); ?> />
+		<label for="<?php echo $this->get_field_id('subscribe'); ?>"><?php _e('Show Subscription Text'); ?></label>
+		</p>
 <?php
 	}
 }
@@ -1047,7 +1054,10 @@ function hec_calendar_sc($atts, $content = null) {
 		$r .= '</tr>';
 	}
 	
-	return $r . '</tbody></table>' . '<p style="text-align:center;">' . hec_ics_link(). '</p>';
+	$r = $r . '</tbody></table>' ;
+	if (!isset($hidesubscription)) $r = $r . '<p style="text-align:center;">' . hec_ics_link(). '</p>';
+	
+	return $r;
 }
 
 ?>
