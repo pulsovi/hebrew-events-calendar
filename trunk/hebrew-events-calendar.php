@@ -53,6 +53,8 @@ function hec_rewrite( $wp_rewrite ) {
 function hec_query_vars($vars) {
 	// add the option for the ICS feed
 	$vars[] = 'hec_ics';
+	//$vars[] = 'hec_month';
+	//$vars[] = 'hec_year';
 	return $vars;
 }
 
@@ -976,30 +978,20 @@ class hec_events_widget extends WP_Widget {
 
 function hec_calendar_sc($atts, $content = null) {
 	global $hec_months;
-		extract(shortcode_atts(array(
-		), $atts));
+	$d = getdate();
+	$month = $d['mon'];
+	$year = $d['year'];
+	extract(shortcode_atts(array('month' => isset($_REQUEST['hec_month']) ? $_REQUEST['hec_month'] : $d['mon'], 'year' => isset($_REQUEST['hec_year']) ? $_REQUEST['hec_year'] : $d['year']), $atts));
 
-	if (isset($_REQUEST['d']))
-	{
-		$d = explode('/', $_REQUEST['d']);
-		$month = $d[0];
-		$year = $d[1];
-	}
-	else
-	{
-		$d = getdate();
-		$month = $d['mon'];
-		$year = $d['year'];
-	}
 	$md = cal_days_in_month(CAL_GREGORIAN, $month, $year);
 	$jd = gregoriantojd($month, 1, $year);
 	$dw = jddayofweek($jd);
 	$weeks = ceil(($md + $dw) / 7);
 	$jd -= $dw;
 
-	$r = "<table style=\"border-style:none;\"><tr><td style=\"border-style:none;width:5%;\"><a href=\"?d=" . ((($month+10) % 12) + 1) . "/" .
-		(($month == 1) ? $year-1 : $year) . "\">&lt;&lt; Previous Month</a></td><td style=\"border-style:none;width:5%;\"><h3 style=\"text-align:center;\">$hec_months[$month] $year</h3></td><td style=\"border-style:none;text-align:right;width:5%;\"><a href=\"?d=" .
-		(($month % 12) + 1) . "/" . (($month == 12) ? $year+1 : $year) . "\">Next Month &gt;&gt;</a></td></tr></table>"
+	$r = "<table style=\"border-style:none;\"><tr><td style=\"border-style:none;width:5%;\"><a rel=\"nofollow\" href=\"?hec_month=" . ((($month+10) % 12) + 1) . "&hec_year=" .
+		(($month == 1) ? $year-1 : $year) . "\">&lt;&lt; Previous Month</a></td><td style=\"border-style:none;width:5%;\"><h3 style=\"text-align:center;\">$hec_months[$month] $year</h3></td><td style=\"border-style:none;text-align:right;width:5%;\"><a rel=\"nofollow\" href=\"?hec_month=" .
+		(($month % 12) + 1) . "&hec_year=" . (($month == 12) ? $year+1 : $year) . "\">Next Month &gt;&gt;</a></td></tr></table>"
 		. '<table><thead><tr><th>Sunday</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th><th>Friday</th><th>Saturday</th></tr></thead><tbody>';
 
 	for ($week = 0; $week < $weeks; $week++)
