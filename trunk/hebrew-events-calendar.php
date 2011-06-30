@@ -3,7 +3,7 @@
 Plugin Name: Hebrew Events Calendar
 Plugin URI: http://wordpress.org/extend/plugins/hebrew-events-calendar/
 Description: A hebrew friendly events calendar
-Version: 0.3
+Version: 0.4
 Author: Yitzchak ben Avraham
 Author URI: http://wordpress.org/extend/plugins/profile/yitzi
 License: GPL2
@@ -29,8 +29,10 @@ $hec_year_types = array(
 class hec_hooks
 {
 	static function init() {
-		global $hec_options, $wp_rewrite;
-	
+		global $hec_options, $wp_rewrite, $wp_query;
+
+		date_default_timezone_set(get_option('timezone_string'));
+		
 		$hec_old_options = get_option('hec_options', array());
 		$hec_options = array_merge(
 		array(
@@ -38,7 +40,7 @@ class hec_hooks
 				'longitude' => ini_get('date.default_longitude'),
 				'sunrise_zenith' => ini_get('date.sunrise_zenith'),
 				'sunset_zenith' => ini_get('date.sunset_zenith'),
-				'post_types' => array('page' => 1, 'post' => 1),
+				'post_types' => array('page', 'post'),
 				'ics_subscription_text' => 'Subscribe to calendar using <a href="%3$s">Webcal (Outlook, Apple iCal, etc.)</a> or <a title="Add to Google Calendar" href="http://www.google.com/calendar/render?cid=%2$s">Google Calendar</a>.',
 				'occurence_limit' => 10,
 				'day_limit' => 390,
@@ -47,14 +49,37 @@ class hec_hooks
 				'ics_description' => 'Description of my events.'),
 		$hec_old_options);
 	
+		/*if (!isset($hec_old_options['version'])) {
+			$old_query = $wp_query;
+			$wp_query = new WP_Query( array ( 'post_type' => $hec_options['post_types'], 'meta_query' => array( array( 'key' => '_hec_event' ) ) ) );
+			
+			while (have_posts()) {
+				the_post();
+				//echo $post->ID;
+				$event = get_post_meta($post->ID, '_hec_event', true);
+				if ($event != '') {
+					foreach ($event as $k => $v)
+					if (substr($k, 0, 6) == 'notes_')
+					add_post_meta($post->ID, '_hec_notes', vsprintf('%3$04d-%1$02d-%2$02d', explode('/', jdtogregorian(substr($k, 6)))) . ',' . $v);
+					elseif (substr($k, 0, 5) == 'hide_')
+					add_post_meta($post->ID, '_hec_hide', vsprintf('%3$04d-%1$02d-%2$02d', explode('/', jdtogregorian(substr($k, 5)))));
+				}
+			}
+			
+			// Reset Post Data
+			$wp_query = $old_query;
+			wp_reset_postdata();
+			
+			$hec_old_options['version'] = 0.4;
+		}*/
+		
 		if ($hec_old_options != $hec_options)
 		update_option('hec_options', $hec_options);
 	
 		if (!isset($wp_rewrite->rules, $hec_options['ics_permalink']))
 		$wp_rewrite->flush_rules();
-	
-		date_default_timezone_set(get_option('timezone_string'));
-	
+		
+		
 		/*	register_post_type(
 			'hec_event',
 		array(
@@ -201,6 +226,9 @@ class hec_hooks
 	
 		if ($occurences_mb)
 		{
+			delete_post_meta($post_ID, '_hec_hide');
+			delete_post_meta($post_ID, '_hec_notes');
+			
 			if ($_REQUEST['hec_occurence_limit'] != '' && $_REQUEST['hec_occurence_limit'] != $hec_options['occurence_limit']) $event['occurence_limit'] = (int)$_REQUEST['hec_occurence_limit'];
 			if ($_REQUEST['hec_day_limit'] != '' && $_REQUEST['hec_day_limit'] != $hec_options['day_limit']) $event['day_limit'] = (int)$_REQUEST['hec_day_limit'];
 	
@@ -209,27 +237,29 @@ class hec_hooks
 				$show = (isset($_REQUEST['hec_show'])) ? $_REQUEST['hec_show'] : array();
 				foreach ($_REQUEST['hec_notes'] as $jd => $notes)
 				{
-					if (!isset($show[$jd])) $event['hide_' . $jd] = 1;
-					if ($notes != '') $event['notes_' . $jd] = $notes;
+					if (!isset($show[$jd])) add_post_meta($post_ID, '_hec_hide', $jd);
+					if ($notes != '') add_post_meta($post_ID, '_hec_notes', $jd . ',' . $notes);
 				}
 			}
 		}
 	
 		if (empty($event))
-		delete_post_meta($post_ID, '_hec_event');
+			delete_post_meta($post_ID, '_hec_event');
 		else
-		update_post_meta($post_ID, '_hec_event', $event);
+			update_post_meta($post_ID, '_hec_event', $event);
+			
+		delete_post_meta($post_ID, '_hec_start');
+		delete_post_meta($post_ID, '_hec_stop');
 	
 		return $post_ID;
 	}
 	
 	static function add_meta_boxes() {
 		global $hec_options;
-		foreach ($hec_options['post_types'] as $post_type => $show)
-			if ($show) {
-				add_meta_box('hec-event-mb', 'Hebrew Event', array( 'hec_metaboxes', 'callback_event_metabox' ), $post_type, 'side');
-				add_meta_box('hec-occurences-mb', 'Hebrew Event Occurences', array( 'hec_metaboxes', 'callback_occurences_metabox' ), $post_type, 'normal');
-			}
+		foreach ($hec_options['post_types'] as $post_type) {
+			add_meta_box('hec-event-mb', 'Hebrew Event', array( 'hec_metaboxes', 'callback_event_metabox' ), $post_type, 'side');
+			add_meta_box('hec-occurences-mb', 'Hebrew Event Occurences', array( 'hec_metaboxes', 'callback_occurences_metabox' ), $post_type, 'normal');
+		}
 	}
 
 	static function widgets_init() {
@@ -243,32 +273,39 @@ class hec_hooks
 
 	static function the_content($content)
 	{
-		global $occurence_range, $hec_options;//, $hec_occurence_limit, $hec_day_limit;	
+		global $occurence_range, $hec_options, $post, $wp_query;//, $hec_occurence_limit, $hec_day_limit;	
 	
-		if ($hec_options['post_types'][get_post_type()]) {	
-			$event =  get_post_meta(get_the_ID(), '_hec_event', true);
+		if (in_array(get_post_type(), $hec_options['post_types'])) {	
+			$event = get_post_meta(get_the_ID(), '_hec_event', true);
 			if ($event != '') {
 				$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
 				if ($occurence_limit > 0) {
-					$occurences = hec::get_occurences(array('day_limit' => (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit']), /*unixtojd(), (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'], false, false, true,*/ array('post__in' => array(get_the_ID())));
-					if (count($occurences) == 0) return $content;
+					$old_query = $wp_query;
+					$wp_query = new WP_Query(
+							array('post__in' => array($post->ID),
+							'post_type' => 'any',
+							'hec_start' => array(hec::sql_date(), hec::sql_date((isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'])),
+							'posts_per_page' => $occurence_limit) );
+							
+					if (have_posts()) {
 					
-					$content .= '<h3>Upcoming Occurences</h3><table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
-	
-					end($occurences);
-					while ((count($occurences) > $occurence_limit) && is_null(current($occurences)->notes))
-					{
-						unset($occurences[key($occurences)]);
-						end($occurences);
-					}
-	
-					foreach ($occurences as $occurence)
-					{
-						$content .= '<tr><td>' . date(get_option('date_format'), $occurence->start) . '</td><td>' . date(get_option('time_format'), $occurence->start) . '</td><td>' .
-							$occurence->notes . '</td></tr>';
+						$content .= '<h3>Upcoming Occurences</h3><table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
+
+						while (have_posts())  {
+							the_post();
+							$content .= '<tr><td>' . date(get_option('date_format'), strtotime($post->hec_start)) . '</td><td>' . date(get_option('time_format'), strtotime($post->hec_start)) . '</td><td>' .
+								$post->hec_notes . '</td></tr>';
+						}
+						
+						$content .= '</table>';
+						
+						
 					}
 					
-					return $content . '</table>';
+					$wp_query = $old_query;
+					wp_reset_query();
+					
+					return $content;
 				}
 			}
 		}
@@ -279,10 +316,58 @@ class hec_hooks
 	static function query_vars($vars) {
 		// add the option for the ICS feed
 		$vars[] = 'hec_ics';
+		$vars[] = 'hec_start';
 		//$vars[] = 'hec_month';
 		//$vars[] = 'hec_year';
 		return $vars;
 	}
+	
+	/*static function posts_request($query) {
+		echo "<p>$query</p>";
+		return $query;
+	}*/
+	
+	/*static function pre_get_posts($wp_query) {
+		if ($wp_query->get('orderby')) {
+			$count = 0;
+			$orderby = preg_replace('/\bhec_start\b/', 'meta_value', $wp_query->get('orderby'), -1, $count);
+			if ($count > 0) {
+				$wp_query->set('orderby', $orderby);
+				$wp_query->set('meta_key', '_hec_start');
+			}
+		}
+	}*/
+	
+	/* @priority: 8 */
+	static function posts_clauses($clauses, $wp_query) {
+		global $wpdb;
+		if ($datetime = $wp_query->get('hec_start')) {
+			//echo $datetime[0] . ' ' . $datetime[1];
+		
+			if (is_string($datetime)) $datetime = explode(',', $datetime);
+			
+			//echo unixtojd(strtotime($datetime[0])) . '  '. unixtojd(strtotime($datetime[1]));
+			//echo date("Y-m-d H:i:s", jdtounix(unixtojd(strtotime($datetime[0])))) . '  '. date("Y-m-d H:i:s", jdtounix(unixtojd(strtotime($datetime[1]))));
+			hec::calculate_all(unixtojd(strtotime($datetime[0])), unixtojd(strtotime($datetime[1])));
+			
+			$clauses['distinct'] = '';
+			$clauses['fields'] .= ", mt_start.meta_value AS hec_start, SUBSTR(mt_notes.meta_value, 12) AS hec_notes, SUBSTR(mt_stop.meta_value, 12) AS hec_stop, mt_hide.meta_value AS hec_hide";
+			$clauses['join'] .= "
+				INNER JOIN {$wpdb->postmeta} AS mt_start ON ({$wpdb->posts}.ID = mt_start.post_id)
+				LEFT JOIN {$wpdb->postmeta} AS mt_notes ON (mt_start.post_id = mt_notes.post_id AND mt_notes.meta_key = '_hec_notes' AND LEFT(mt_notes.meta_value,10) = LEFT(mt_start.meta_value,10))
+				LEFT JOIN {$wpdb->postmeta} AS mt_stop ON (mt_start.post_id = mt_stop.post_id AND mt_stop.meta_key = '_hec_stop' AND LEFT(mt_stop.meta_value, 10) =  LEFT(mt_start.meta_value, 10))
+				LEFT JOIN {$wpdb->postmeta} AS mt_hide ON (mt_start.post_id = mt_hide.post_id AND mt_hide.meta_key = '_hec_hide' AND LEFT(mt_hide.meta_value, 10) =  LEFT(mt_start.meta_value, 10))";
+			$clauses['where'] .= " AND mt_start.meta_key = '_hec_start'";
+			$clauses['where'] .= ($wp_query->get('hec_range')) ?
+				" AND ((mt_stop.meta_key IS NULL AND mt_start.meta_key = '_hec_start' AND CAST(mt_start.meta_value AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}') OR (CAST(mt_start.meta_value AS DATETIME) <= '{$datetime[1]}' AND CAST(SUBSTR(mt_stop.meta_value, 12) AS DATETIME) >= '{$datetime[0]}'))" :
+				" AND CAST(mt_start.meta_value AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}'";
+			if (!$wp_query->get('hec_show_all'))
+				$clauses['where'] .= " AND mt_hide.meta_key IS NULL";
+			$clauses['groupby'] = "mt_start.meta_value, {$wpdb->posts}.post_title";
+			$clauses['orderby'] = 'mt_start.meta_value';
+		}
+		return $clauses;
+	}	
 
 	static private function encode_text_ics($text)
 	{
@@ -290,7 +375,7 @@ class hec_hooks
 	}
 	
 	static function template_redirect() {
-		global $hec_options;
+		global $hec_options, $post, $wp_query;
 		if (get_query_var('hec_ics')) {
 			header('Content-type: text/calendar');
 			echo "BEGIN:VCALENDAR\n";
@@ -298,8 +383,30 @@ class hec_hooks
 			echo "X-WR-CALNAME;CHARSET=UTF-8:" . self::encode_text_ics($hec_options['ics_title']) . "\n";
 			echo "X-WR-CALDESC;CHARSET=UTF-8:" . self::encode_text_ics($hec_options['ics_description']) . "\n";
 			echo "X-PUBLISHED-TTL:PT360M\n";
+
+			$old_query = $wp_query;
+			$wp_query = new WP_Query(
+				array(
+					'post_type' => $hec_options['post_types'],
+					'hec_start' => array(hec::sql_date(), hec::sql_date($hec_options['day_limit'])),
+					'nopaging' => true) );
+					
+			while (have_posts())  {
+				the_post();
+				echo "BEGIN:VEVENT\n";
+				echo "UID:" . $post->ID . '-' . substr($post->hec_start, 0, 10) . "\n";
+				echo gmstrftime("DTSTART:%Y%m%dT%H%M00Z\n", strtotime($post->hec_start));
+				if (!is_null($post->hec_stop)) echo gmstrftime("DTEND:%Y%m%dT%H%M00Z\n", strtotime($post->hec_stop));
+				echo "SUMMARY;CHARSET=UTF-8:" . self::encode_text_ics(get_the_title()) . "\n";
+				echo "DESCRIPTION;CHARSET=UTF-8:" . self::encode_text_ics(get_the_excerpt());
+				if (!is_null($post->hec_notes))
+					echo self::encode_text_ics(' (' . $post->hec_notes . ')');
+				echo "\n";
+				echo "URL:" . self::encode_text_ics(get_permalink($post->ID)) . "\n";
+				echo "END:VEVENT\n";
+			}
 	
-			foreach (hec::get_occurences()/*unixtojd(), $hec_options['day_limit']) */as $occurence)
+			/*foreach (hec::get_occurences()/*unixtojd(), $hec_options['day_limit']) *\/as $occurence)
 			{
 				echo "BEGIN:VEVENT\n";
 				echo "UID:" . $occurence->post_id . '-' . unixtojd($occurence->start) . "\n";
@@ -313,9 +420,13 @@ class hec_hooks
 				else if (!is_null($occurence->notes)) echo "DESCRIPTION:" . self::encode_text_ics($occurence->notes) . "\n";
 				echo "URL:" . self::encode_text_ics(get_permalink($occurence->post_id)) . "\n";
 				echo "END:VEVENT\n";
-			}
+			}*/
 	
 			echo "END:VCALENDAR\n";
+			
+			$wp_query = $old_query;
+			wp_reset_postdata();
+			
 			exit();
 		}
 	}
@@ -340,7 +451,12 @@ class hec_hooks
 class hec_shortcodes {
 	
 	static function calendar($atts, $content = null) {
-		global $hec_months;
+		global $hec_months, $post, $hec_options, $wp_query;
+		
+		//echo get_option('timezone_string') . ' ' . ini_get('date.timezone');
+		
+		date_default_timezone_set(get_option('timezone_string'));
+		
 		$d = getdate();
 		$month = $d['mon'];
 		$year = $d['year'];
@@ -357,56 +473,58 @@ class hec_shortcodes {
 		(($month % 12) + 1) . "&hec_year=" . (($month == 12) ? $year+1 : $year) . "\">Next Month &gt;&gt;</a></td></tr></table>"
 		. '<table><thead><tr><th>Sunday</th><th>Monday</th><th>Tuesday</th><th>Wednesday</th><th>Thursday</th><th>Friday</th><th>Saturday</th></tr></thead><tbody>';
 	
-		for ($week = 0; $week < $weeks; $week++)
-		{
-		$r .= '<tr>';
-		for ($i = 0; $i < 7; $i++, $jd++)
-		{
-		$d = cal_from_jd($jd, CAL_GREGORIAN);
-		$dj = cal_from_jd($jd, CAL_JEWISH);
-		$r .= '<td style="font-size:80%;width:5%; vertical-align:top; text-align:center; "><div style="align:center;font-weight:bold;">' . $d['day'] . ' (' . $dj['day'] . ' ' . $hec_months[(!hec::is_jewish_leap($dj['year']) && $dj['month'] == 6) ? 7 : -$dj['month']] . ')</div>';
-					$j = 0;
-		//$sep = '';
-		//$r .= '<dl>';
-		foreach (hec::get_occurences(array('julian_date' => $jd, 'day_limit' => 1, 'start_only' => false)) as $occurence)//$jd, 1, /*$show_all*/ false, /*$post_id*//* null*/, /*$event_id*/ null, /*$first_only*/ false, /*$start_only*/false) as $occurence)
-		{
-		$r .= '<hr style="margin-left:5%;margin-right:5%;"/><div';// style="border-top:1px dotted;"';
-		//$r .= '<li' .
-		$has_note = !is_null($occurence->notes);
-		$has_desc = false;//!is_null($occurence->description);
-		if ($has_note && $has_desc)
-		$r .= ' title="' . $occurence->description . ' ('. $occurence->notes . ')"';
-		else if ($has_note && !$has_desc)
-		$r .= ' title="' . $occurence->notes . '"';
-		else if (!$has_note && $has_desc)
-		$r .= ' title="' . $occurence->description . '"';
-		$r .= '><div style="font-style:italic;">';
-		if ($jd > unixtojd($occurence->start))
-						$r .= ($jd == unixtojd($occurence->stop)) ? 'until ' . hec_format_time2($occurence->stop) : 'all day';
-		else if (!is_null($occurence->stop) && unixtojd($occurence->stop) == unixtojd($occurence->start))
-		$r .= hec_format_time2($occurence->start) . '–' . hec_format_time2($occurence->stop);
-		else
-		$r .= hec_format_time2($occurence->start);
-		$r .= '</div><div><a href="' . get_permalink($occurence->post_id) . '">' . $occurence->title . '</a></div></div>';
-		//$sep = ', ';
-		/*$r .= '<div style="margin-top:2px;border:1px dotted;padding:2px;"';
-		$r .= '<span';
-		$has_note = isset($event->event->occurences[$jd]) && ($event->event->occurences[$jd] != '');
-		$has_desc = !is_null($event->event->description);
-		if ($has_note && $has_desc)
-		$r .= ' title="' . $event->event->description . ' ('. $event->event->occurences[$jd] . ')"';
-		else if ($has_note && !$has_desc)
-		$r .= ' title="' . $event->event->occurences[$jd] . '"';
-		else if (!$has_note && $has_desc)
-		$r .= ' title="' . $event->event->description . '"';
-		$r .= '><div><b>' . strftime('%l:%M %p', $event->start) . '</b></div><div>' . ((is_null($event->event->post_id)) ? $event->event->title :
-		('<a href="' . get_permalink($event->event->post_id) . '">' . get_post($event->event->post_id)->post_title . '</a>')) . '</div>';
-		$r .= '</div>';*/
-		}
-		//$r .= '</dl>';
-		$r .= '</td>';
-		}
-		$r .= '</tr>';
+		for ($week = 0; $week < $weeks; $week++) {
+			$r .= '<tr>';
+			for ($i = 0; $i < 7; $i++, $jd++)  {
+				$d = cal_from_jd($jd, CAL_GREGORIAN);
+				$df = sprintf('%04d-%02d-%02d', $d['year'], $d['month'], $d['day']);
+				$dj = cal_from_jd($jd, CAL_JEWISH);
+				$r .= '<td style="font-size:80%;width:5%; vertical-align:top; text-align:center; "><div style="align:center;font-weight:bold;">' . $d['day'] . ' (' . $dj['day'] . ' ' . $hec_months[(!hec::is_jewish_leap($dj['year']) && $dj['month'] == 6) ? 7 : -$dj['month']] . ')</div>';
+				$j = 0;
+				//$sep = '';
+				//$r .= '<dl>';
+				$old_query = $wp_query;
+				$wp_query = new WP_Query(
+					array(
+						'post_type' => $hec_options['post_types'],
+						'hec_start' => array($df . ' 00:00:00', $df . ' 23:59:59'),
+						'hec_range' => true,
+						//'orderby' => 'hec_start',
+						//'meta_query' => array( array( 'key' => '_hec_start', 'value' => array(date("Y-m-d H:i:s", jdtounix(unixtojd())), date("Y-m-d H:i:s", jdtounix(unixtojd()+30))), 'compare' => 'BETWEEN', 'type' => 'DATETIME' ) ),
+						'nopaging' => true) );
+						
+				//echo date("Y-m-d H:i:s", jdtounix($jd)) . ', ' . date("Y-m-d H:i:s", jdtounix($jd+1)-1);
+						
+				if (have_posts()) {
+						
+					while (have_posts())  {
+						the_post();
+						$r .= '<hr style="margin-left:5%;margin-right:5%;"/><div title="' . get_the_excerpt();
+						if (!is_null($post->hec_notes))
+							$r .= ' ('. $post->hec_notes . ')';
+						$r .= '"><div style="font-style:italic;">';
+						$start = strtotime($post->hec_start);
+						$stop = (is_null($post->hec_stop)) ? null : strtotime($post->hec_stop);
+						if ($jd > unixtojd($start))
+							$r .= ($jd == unixtojd($stop)) ? 'until ' . hec_format_time2($stop) : 'all day';
+						elseif (!is_null($stop) && unixtojd($stop) == unixtojd($start))
+							$r .= hec_format_time2($start) . '–' . hec_format_time2($stop);
+						else
+							$r .= hec_format_time2($start);
+						$r .= '</div><div><a href="' . get_permalink($post->ID) . '">' . get_the_title($post->ID) . '</a></div></div>';
+					}
+				
+					
+				}
+				
+				$wp_query = $old_query;
+				wp_reset_postdata();
+				
+				//$r .= '</dl>';
+				$r .= '</td>';
+			}
+		
+			$r .= '</tr>';
 		}
 	
 		$r = $r . '</tbody></table>' ;
@@ -434,214 +552,209 @@ class hec {
 		global $hec_year_labels;
 		return ((((($year*7)+1) % 19) < 7) ? 'Mem' : 'Pei') . $hec_rosh_hashanah_labels[jddayofweek(jewishtojd(1, 1, $year))] . $hec_year_labels[jewishtojd(1, 1, $year+1) - jewishtojd(1, 1, $year)];
 	}
-
-	static function get_occurences($args = array(), $query_args = array()) //$jd, $day_limit, $show_hidden=false, /*$post_id=null, */$first_only=false, $start_only=true, $query_args = array())
-	{
+	
+	static function calculate_all($start, $stop) {
+		global $wpdb;
+		foreach ($wpdb->get_results("SELECT * FROM {$wpdb->postmeta} WHERE meta_key = '_hec_event'") as $row) {
+			//echo "<p>" . $row->post_id . "</p>";
+			self::calculate($start, $stop, $row->post_id);
+		}
+	}
+	
+	static function sql_date($offset = 0, $time = null) {
+		return date("Y-m-d H:i:s", ((is_null($time)) ? time() : $time) + $offset * 86400);
+	}
+	
+	static function calculate($start, $stop, $post_id) {
+		
+		//echo "<p>$start $stop</p>";
+		//return;
+		
 		global $post, $hec_options;
 	
-		extract(array_merge(
-		array(
-					'julian_date' => unixtojd(),
-					'day_limit' => $hec_options['day_limit'],
-					'show_hidden' => false,
-					'first_only' => false,
-					'start_only' => true),
-		$args));
-	
-		/*ini_set('date.default_latitude', get_option('hec_latitude', ini_get('date.default_latitude')));
-		 ini_set('date.default_longitude', get_option('hec_longitude', ini_get('date.default_longitude')));
-		ini_set('date.sunrise_zenith', get_option('hec_sunrise_zenith', ini_get('date.sunrise_zenith')));
-		ini_set('date.sunset_zenith', get_option('hec_sunset_zenith', ini_get('date.sunset_zenith')));
-		date_default_timezone_set(get_option('timezone_string'));*/
-		$times = array();
-		$post_types = array();
-		foreach ($hec_options['post_types'] as $post_type => $show)
-		if ($show) $post_types[] = $post_type;
-		//$query_args = array( 'post_type' => $post_types, 'meta_key' => '_hec_event' , 'nopaging' => true);
-		//if (!is_null($post_id)) $query_args['post__in'] = array($post_id);
-		$the_query = new WP_Query( array_merge( array( 'post_type' => $post_types, 'meta_key' => '_hec_event' , 'nopaging' => true), $query_args)); //$query_args );
-	
-		if (!$the_query->have_posts()) return array();
-	
-		for ($i=($first_only || $start_only) ? 0 : -9; $i<$day_limit; $i++)
-		{
-		$j = explode('/', jdtogregorian($julian_date+max($i,0)));
-		$month0 = (int)$j[0];
-		$day0 = (int)$j[1];
-		$year0 = (int)$j[2];
-	
-		$j = explode('/', jdtogregorian($julian_date+$i));
-		$month = (int)$j[0];
-		$day = (int)$j[1];
-		$year = (int)$j[2];
-		$week = ceil($day/7);
-	
-		$j = explode('/', jdtojewish($julian_date+$i));
-		$jmonth0 = (int)$j[0];
-		$julian_dateay0 = (int)$j[1];
-		$jyear0 = (int)$j[2];
-		$jweek0 = ceil($julian_dateay0/7);
-		$jleap0 = hec::is_jewish_leap($jyear0);
-		$jtype0 = hec::get_year_type($jyear0);
-		if (!$jleap0 && ($jmonth0 == 6)) $jmonth0 = 7;
-	
-		$j = explode('/', jdtojewish($julian_date+$i+1));
-				$jmonth1 = (int)$j[0];
-		$julian_dateay1 = (int)$j[1];
-		$jyear1 = (int)$j[2];
-		$jweek1 = ceil($julian_dateay1/7);
-		$jleap1 = self::is_jewish_leap($jyear1);
-		$jtype1 = self::get_year_type($jyear1);
-		if (!$jleap1 && ($jmonth1 == 6)) $jmonth1 = 7;
-	
-		$midnight = mktime(0, 0, 0, $month, $day, $year);
-		$midnight0 = mktime(0, 0, 0, $month0, $day0, $year0);
-		$weekday = jddayofweek($julian_date+$i);
-	
-		$the_query->rewind_posts();
-		while ($the_query->have_posts())  {
-		$the_query->the_post();
-		$event =  get_post_meta($post->ID, '_hec_event', true);
-	
-		if ((isset($event['start_date']) && (($julian_date+$i)<$event['start_date'])) || (isset($event['stop_date']) && (($julian_date+$i)>$event['stop_date']))) continue;
-					if (!$show_hidden)
-		if ($event['hide_' . ($julian_date+$i)]) continue;
-	
-		$j0 = true;
-		$j1 = true;
-	
-					if (isset($event['year']))
-		{
-		if ($event['year'] < 5000)
-		{
-		if ($event['year'] != $year) continue;
+		$event = get_post_meta($post_id, '_hec_event', true);
+		if ($event == '') return;
+		
+		if ((isset($event['start_date']) && ($stop<$event['start_date'])) || (isset($event['stop_date']) && ($start>$event['stop_date']))) return;
+		
+		if (isset($event['calculation'])) {
+			if ($event['calculation'][0] <= $start && $event['calculation'][1] >= $stop) return;
+			$start = min($start, $event['calculation'][1]);
+			$stop = max($stop, $event['calculation'][0]);
 		}
-		else
-		{
-			$j0 = ($j0 && ($event['year'] == $jyear0));
-				$j1 = ($j1 && ($event['year'] == $jyear1));
-				if (!$j0 && !$j1) continue;
-				}
-				}
+		
+		$latitude = (isset($event['latitude'])) ? $event['latitude'] : $hec_options['latitude'];
+		$longitude = (isset($event['longitude'])) ? $event['longitude'] : $hec_options['longitude'];
+		$sunset_zenith = (isset($event['sunset_zenith'])) ? $event['sunset_zenith'] : $hec_options['sunset_zenith'];
+		$sunrise_zenith = (isset($event['sunrise_zenith'])) ? $event['sunrise_zenith'] : $hec_options['sunrise_zenith'];
+		
+		//echo $latitude . ' ' . $longitude . ' ' . $sunset_zenith . ' ';
+
+		for ( $julian_date = $start; $julian_date <= $stop; $julian_date++ ) {
+			
+			if ((isset($event['start_date']) && ($julian_date<$event['start_date'])) || (isset($event['stop_date']) && ($julian_date>$event['stop_date']))) continue;
 	
-					if (isset($event['month']))
-				{
-				if ($event['month'] < 0)
-				{
-				$j0 = ($j0 && (-$event['month'] == $jmonth0));
-				$j1 = ($j1 && (-$event['month'] == $jmonth1));
-				if (!$j0 && !$j1) continue;
+			if (isset($event['calculation']) && $event['calculation'][0] <= $julian_date && $event['calculation'][1] >= $julian_day) continue;
+			
+			$j = explode('/', jdtogregorian($julian_date));
+			$month = (int)$j[0];
+			$day = (int)$j[1];
+			$year = (int)$j[2];
+			$week = ceil($day/7);
+		
+			$j = explode('/', jdtojewish($julian_date));
+			$jmonth0 = (int)$j[0];
+			$jday0 = (int)$j[1];
+			$jyear0 = (int)$j[2];
+			$jweek0 = ceil($jday0/7);
+			$jleap0 = self::is_jewish_leap($jyear0);
+			$jtype0 = self::get_year_type($jyear0);
+			if (!$jleap0 && ($jmonth0 == 6)) $jmonth0 = 7;
+		
+			$j = explode('/', jdtojewish($julian_date+1));
+			$jmonth1 = (int)$j[0];
+			$jday1 = (int)$j[1];
+			$jyear1 = (int)$j[2];
+			$jweek1 = ceil($jday1/7);
+			$jleap1 = self::is_jewish_leap($jyear1);
+			$jtype1 = self::get_year_type($jyear1);
+			if (!$jleap1 && ($jmonth1 == 6)) $jmonth1 = 7;
+		
+			$midnight = mktime(0, 0, 0, $month, $day, $year);
+			$midnight0 = mktime(0, 0, 0, $month0, $day0, $year0);
+			$weekday = jddayofweek($julian_date+$i);
+	
+			$j0 = true;
+			$j1 = true;
+	
+			if (isset($event['year'])) {
+				if ($event['year'] < 5000) {
+					if ($event['year'] != $year) continue;
+				} else {
+					$j0 = ($j0 && ($event['year'] == $jyear0));
+					$j1 = ($j1 && ($event['year'] == $jyear1));
+					if (!$j0 && !$j1) continue;
+				}
+			}
+	
+			if (isset($event['month'])) {
+				if ($event['month'] < 0) {
+					$j0 = ($j0 && (-$event['month'] == $jmonth0));
+					$j1 = ($j1 && (-$event['month'] == $jmonth1));
+					if (!$j0 && !$j1) continue;
 				}
 				else if ($event['month'] != $month) continue;
-				}
+			}
 	
-				if (isset($event['day']))
-				{
-				if ($event['month'] < 0)
-				{
-				$j0 = ($j0 && ($event['day'] == $julian_dateay0));
-				$j1 = ($j1 && ($event['day'] == $julian_dateay1));
-				if (!$j0 && !$j1) continue;
-		}
+			if (isset($event['day'])) {
+				if ($event['month'] < 0) {
+					$j0 = ($j0 && ($event['day'] == $jday0));
+					$j1 = ($j1 && ($event['day'] == $jday1));
+					if (!$j0 && !$j1) continue;
+				}
 				else if ($event['day'] != $day) continue;
-		}
+			}
 	
-				if (isset($event['week']))
-				{
-				if ($event['month'] < 0)
-				{
-				$j0 = ($j0 && ($event['week'] == $jweek0));
-				$j1 = ($j1 && ($event['week'] == $jweek1));
-				if (!$j0 && !$j1) continue;
-	}
+			if (isset($event['week'])) {
+				if ($event['month'] < 0) {
+					$j0 = ($j0 && ($event['week'] == $jweek0));
+					$j1 = ($j1 && ($event['week'] == $jweek1));
+					if (!$j0 && !$j1) continue;
+				}
 				else if ($event['week'] != $week) continue;
-				}
+			}
 	
-				if (isset($event['weekday']))
-				{
-				if ($event['weekday'] < 0)
-				{
-				$j0 = ($j0 && ((-$event['weekday']-1) == $weekday));
-				$j1 = ($j1 && (((-$event['weekday']+5) % 7) == $weekday));
-				if (!$j0 && !$j1) continue;
-	}
+			if (isset($event['weekday'])) {
+				if ($event['weekday'] < 0) {
+					$j0 = ($j0 && ((-$event['weekday']-1) == $weekday));
+					$j1 = ($j1 && (((-$event['weekday']+5) % 7) == $weekday));
+					if (!$j0 && !$j1) continue;
+				}
 				else if ($event['weekday']-1 != $weekday) continue;
-				}
+			}
 	
-				if (array_key_exists('month_' . $jtype0, $event))
+			if (array_key_exists('month_' . $jtype0, $event))
 				$j0 = ($j0 && ($event['month_' . $jtype0] == $jmonth0));
 	
-				if (array_key_exists('month_' . $jtype1, $event))
-					$j1 = ($j1 && ($event['month_' . $jtype1] == $jmonth1));
+			if (array_key_exists('month_' . $jtype1, $event))
+				$j1 = ($j1 && ($event['month_' . $jtype1] == $jmonth1));
 	
-					if (array_key_exists('day_' . $jtype0, $event))
-				$j0 = ($j0 && ($event['day_' . $jtype0] == $julian_dateay0));
-	
-					if (array_key_exists('day_' . $jtype1, $event))
-				$j1 = ($j1 && ($event['day_' . $jtype1] == $julian_dateay1));
-	
-					if (!$j0 && !$j1) continue;
-	
-				$hebrew = ((isset($event['time_offset']) || !isset($event['time'])) && (count(preg_grep('/^(day|month)_/', array_keys($event))) > 0 || $event['weekday'] < 0 || ($event['month'] < 0 && isset($event['day']))));
-				$offset = ((is_null($event['time'])) ? 0 : ((int)$event['time']*60));
+			if (array_key_exists('day_' . $jtype0, $event))
+				$j0 = ($j0 && ($event['day_' . $jtype0] == $jday0));
 		
-				if ($event['sunrise'] && $hebrew) $j1 = false;
-				if (!$j0 && !$j1) continue;
-		
-				$latitude = (isset($event['latitude'])) ? $event['latitude'] : $hec_options['latitude'];
-					$longitude = (isset($event['longitude'])) ? $event['longitude'] : $hec_options['longitude'];
-				$sunset_zenith = (isset($event['sunset_zenith'])) ? $event['sunset_zenith'] : $hec_options['sunset_zenith'];
-					$sunrise_zenith = (isset($event['sunrise_zenith'])) ? $event['sunrise_zenith'] : $hec_options['sunrise_zenith'];
+			if (array_key_exists('day_' . $jtype1, $event))
+				$j1 = ($j1 && ($event['day_' . $jtype1] == $jday1));
 	
-				$t = (($event['sunrise']) ?
-					date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunrise_zenith) :
+			if (!$j0 && !$j1) continue;
+	
+			$hebrew = ((isset($event['time_offset']) || !isset($event['time'])) && (count(preg_grep('/^(day|month)_/', array_keys($event))) > 0 || $event['weekday'] < 0 || ($event['month'] < 0 && isset($event['day']))));
+			$offset = ((is_null($event['time'])) ? 0 : ((int)$event['time']*60));
+	
+			if ($event['sunrise'] && $hebrew) $j1 = false;
+			if (!$j0 && !$j1) continue;
+	
+			$t = (($event['sunrise']) ?
+				date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunrise_zenith) :
 				(($hebrew) ? date_sunset(($j0) ? $midnight-1 : $midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) : $midnight)) + $offset;
 	
-				$start_in_range = ($t >= $midnight && $t < ($midnight + 86400));
-				if ($start_in_range && $first_only) return $t;
-					
-				$stop = null;
-				if (isset($event['duration_days']) || isset($event['duration_minutes']))
-				{
-				$stop = (isset($event['duration_days'])) ?
-				((($hebrew) ?
-				date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
+			if ($t < $midnight || $t >= ($midnight + 86400)) continue;
+			
+			add_post_meta($post_id, '_hec_start', hec::sql_date(0, $t));
+						
+			if (isset($event['duration_days']) || isset($event['duration_minutes'])) {
+				$tstop = (isset($event['duration_days'])) ?
+					((($hebrew) ?
+						date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$event['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
 						($t + 86400*$event['duration_days'])))
-				: $t;
-						if (isset($event['duration_minutes'])) $stop += 60*(int)$event['duration_minutes'];
-				}
-	
-				if (($start_only && $start_in_range)
-				|| (!$start_only && ($j1 || $event['sunrise']) && ((is_null($stop) && $t >= $midnight0 && $t < ($midnight0 + 86400)) || (!is_null($stop) && $t < ($midnight0 + 86400) && $stop >= $midnight0))))
-				{
-					$title = the_title_attribute(array(
-					'echo' => 0,
-					'before' => (!$start_only && $hebrew && $j1 && $i>-1 && isset($event['duration_days'])) ? 'Erev ' : ''));
-					$notes = $event['notes_' . ($julian_date+$i)];
-					if ($notes == '') $notes = null;
-					$times[] = new hec_occurrence($post->ID, $title, $notes, $t, $stop);
-					}
-					}
-					}
-					if ($first_only) return array();
-			usort($times, 'hec_o_cmp');
-					wp_reset_postdata();
-			return $times;
-					}
-	
-	
+					: $t;
+				if (isset($event['duration_minutes'])) $tstop += 60*(int)$event['duration_minutes'];
+				add_post_meta($post_id, '_hec_stop',  date("Y-m-d", $t) . ',' . date("Y-m-d H:i:s", $tstop));
+			}
+		}
+		
+		$event['calculation'] = (isset($event['calculation'])) ?
+			array( min( $event['calculation'][0], $start ), max( $event['calculation'][1], $stop ) ) :
+			array( $start, $stop );
+		
+		update_post_meta($post_id, '_hec_event', $event);		
+	}
+					
 }
 
 
 class hec_options_page {
 	
 	static function callback_sanitize_options($options) {
+		global $wp_query, $post, $hec_options;
+		//unset($options['version']);
 		$options['latitude'] = floatval($options['latitude']);
 		$options['longitude'] = floatval($options['longitude']);
 		$options['sunset_zenith'] = floatval($options['sunset_zenith']);
 		$options['sunrise_zenith'] = floatval($options['sunrise_zenith']);
 		$options['occurence_limit'] = intval($options['occurence_limit']);
 		$options['day_limit'] = intval($options['day_limit']);
+		$options['post_types'] = array_keys($options['post_types']);
+		
+		$old_query = $wp_query;
+		$wp_query = new WP_Query( array ( 'nopaging' => true, 'post_type' => $options['post_types'], 'meta_query' => array( array( 'key' => '_hec_event' ) ) ) );
+			
+		while (have_posts()) {
+			the_post();
+			$event = get_post_meta($post->ID, '_hec_event', true);
+			if ($event != '') {
+				unset($event['calculation']);
+				update_post_meta($post->ID, '_hec_event', $event);
+			}
+			delete_post_meta($post->ID, '_hec_start');
+			delete_post_meta($post->ID, '_hec_stop');
+		}
+		
+		// Reset Post Data
+		$wp_query = $old_query;
+		wp_reset_postdata();
+
+		$hec_options = $options;
+
 		return $options;
 	}
 	
@@ -670,7 +783,7 @@ class hec_options_page {
 	static function callback_checkbox_settings_field($args) {
 		global $hec_options;
 		echo '<input id="' . $args['label_for'] . '" name="hec_options[post_types][' . $args['name']. ']" type="checkbox"';
-		if ($hec_options['post_types'][$args['name']]) echo ' checked';
+		if (in_array($args['name'], $hec_options['post_types'])) echo ' checked';
 		echo '/>';
 	}
 	
@@ -845,7 +958,7 @@ class hec_metaboxes {
 		}
 		
 		static function callback_occurences_metabox() {
-			global $post, $hec_weekdays, $hec_months, $hec_year_types, $hec_options;//$hec_occurence_limit, $hec_day_limit;
+			global $post, $hec_weekdays, $hec_months, $hec_year_types, $hec_options, $wp_query;//$hec_occurence_limit, $hec_day_limit;
 			// Use nonce for verification
 			wp_nonce_field( 'hec_update_occurences', 'hec_occurences_mb_nonce' );
 		
@@ -853,7 +966,18 @@ class hec_metaboxes {
 			$event = ($data == '') ? array() : $data;
 			$day_limit = (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'];
 			$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
-			$occurences = hec::get_occurences(array('day_limit' => $day_limit, 'show_hidden' => true), /*unixtojd(),  $day_limit, true, false, true,*/ array('post__in' => array($post->ID)));
+			
+			$old_query = $wp_query;
+			$wp_query = new WP_Query(
+				array(
+					'post__in' => array( $post->ID ),
+					'hec_show_all' => true,
+					'post_type' => 'any',
+					'hec_start' => array(hec::sql_date(), hec::sql_date($day_limit)),
+					'nopaging' => true) );
+				
+			
+			//$occurences = hec::get_occurences(array('day_limit' => $day_limit, 'show_hidden' => true), /*unixtojd(),  $day_limit, true, false, true,*/ array('post__in' => array($post->ID)));
 			// Use nonce for verification
 			//wp_nonce_field( plugin_basename( __FILE__ ), 'myplugin_noncename' );
 			?>
@@ -869,9 +993,7 @@ class hec_metaboxes {
 				</tr>
 		
 			</table>
-			<?php if (empty($occurences)) : ?>
-			<p>No occurences in the next <?php echo $day_limit; ?> days.</p>
-			<?php else: ?>
+			<?php if (have_posts()) : ?>
 			<table>
 				<thead>
 					<tr>
@@ -889,15 +1011,22 @@ class hec_metaboxes {
 					</tr>
 				</tfoot>
 		
-				<tbody>
-				<?php foreach ($occurences as $occurence) {
-					$jd = unixtojd($occurence->start);
-					echo '<tr><td><input name="hec_show[' . $jd . ']" type="checkbox"'. (($event['hide_' . $jd]) ? '' : ' checked="yes"') .'/></td><td>' .
-					date(get_option('date_format'), $occurence->start) .
-					'</td><td><input size="40" name="hec_notes[' . $jd . ']" type="text" value="' . $event['notes_' . $jd] . '"/></td></tr>'; }
+				<tbody><?php
+				while (have_posts())  {
+					the_post();
+					$label = substr($post->hec_start, 0, 10);
+					//$jd = unixtojd($occurence->start);
+					echo '<tr><td><input name="hec_show[' . $label . ']" type="checkbox"'. (($post->hec_hide) ? '' : ' checked="yes"') .'/></td><td>' .
+					date(get_option('date_format'), strtotime($post->hec_start)) .
+					'</td><td><input size="40" name="hec_notes[' . $label . ']" type="text" value="' . $post->hec_notes . '"/></td></tr>'; }
 				?>
 				</tbody>
-			</table><?php endif; 
+			</table>
+			<?php else: ?>
+			<p>No occurences in the next <?php echo $day_limit; ?> days.</p>
+			<?php endif;  
+			$wp_query = $old_query;
+			wp_reset_postdata();
 	}
 		
 }
@@ -906,16 +1035,47 @@ class hec_metaboxes {
 class hec_dashboard_widget {
 	
 	static function callback() {
-		global $hec_dashboard_days;
+		global $hec_options, $post, $wp_query, $hec_dashboard_days;
+		
+		date_default_timezone_set(get_option('timezone_string'));
+
+		//echo '<p>' . date("Y-m-d H:i:s") . ' ' . date("Y-m-d H:i:s", time() + $hec_dashboard_days * 86400) . '</p>';
 		echo '<p class="sub">Upcoming Hebrew Events</p>';
 		echo '<table width="100%" style="border-collapse:collapse;">';
-		foreach (hec::get_occurences(array('day_limit' => $hec_dashboard_days))/*unixtojd(), $hec_dashboard_days)*/ as $k => $occurence) {
+		$old_query = $wp_query;
+		$wp_query = new WP_Query(
+			array(
+				'post_type' => $hec_options['post_types'],
+				'hec_start' => array(hec::sql_date(), hec::sql_date($hec_dashboard_days)),
+				//jdtounix(unixtojd(time()))), date("Y-m-d H:i:s", jdtounix(unixtojd(time())+$hec_dashboard_days))),
+				//'orderby' => 'hec_start',
+				//'meta_query' => array( array( 'key' => '_hec_start', 'value' => array(date("Y-m-d H:i:s", jdtounix(unixtojd())), date("Y-m-d H:i:s", jdtounix(unixtojd()+30))), 'compare' => 'BETWEEN', 'type' => 'DATETIME' ) ),
+				'nopaging' => true) );
+		$k = 0;
+		while (have_posts())  {
+			the_post();
+			//echo "<tr><td>{$post->hec_notes}</td><td>{$post->hec_stop}</td></tr>";
+			echo '<tr style="' . (($k % 2 == 0) ? 'background:	#fafafa; ' : '' ) . 'border-top:solid 1px	#d0d0d0; border-bottom:solid 1px #d0d0d0;">';
+			echo '<td style="padding: 5pt;"><a href="' . get_edit_post_link($post->ID) . '">' . get_the_title() . '</a></td>';
+			echo '<td style="padding: 5pt;">' .  $post->hec_notes . '</td>';
+			echo '<td style="text-align:right; padding: 5pt;">' . date(get_option('date_format') . '; ' . get_option('time_format'), strtotime($post->hec_start)) . '</td>';
+			echo '</tr>';
+			$k++;
+		}
+		$wp_query = $old_query;
+		wp_reset_postdata();		
+		echo '</table>';
+		
+		/*global $hec_dashboard_days;
+		echo '<p class="sub">Upcoming Hebrew Events</p>';
+		echo '<table width="100%" style="border-collapse:collapse;">';
+		foreach (hec::get_occurences(array('day_limit' => $hec_dashboard_days)) as $k => $occurence) {
 			echo '<tr style="' . (($k % 2 == 0) ? 'background:	#fafafa; ' : '' ) . 'border-top:solid 1px	#d0d0d0; border-bottom:solid 1px #d0d0d0;">';
 			echo '<td style="padding: 5pt;"><a href="' . get_edit_post_link($occurence->post_id) . '">' . $occurence->title . '</a></td>';
 			echo '<td style="text-align:right; padding: 5pt;">' . date(get_option('date_format') . '; ' . get_option('time_format'), $occurence->start) . '</td>';
 			echo '</tr>';
 		}
-		echo '</table>';
+		echo '</table>';*/
 	}
 	
 	static function control_callback() {
@@ -1019,6 +1179,7 @@ class hec_events_widget extends WP_Widget {
 	}
  
 	function widget($args, $instance) {
+		global $hec_options, $post, $wp_query;
 		extract($args, EXTR_SKIP);
  
 		//date_default_timezone_set(get_option('timezone_string'));
@@ -1026,25 +1187,35 @@ class hec_events_widget extends WP_Widget {
 		echo $before_widget;
 		echo $before_title . $instance['title'] . $after_title;
 		echo '<ul>';
-		$jd = unixtojd();
+		$jd = unixtojd(time());
 		for ($i = 0; $i < $instance['days']; $i++)
 		{
-			$occurences = hec::get_occurences(array('julian_date' => $jd+$i, 'day_limit' => 1, 'start_only' => false));//$jd+$i, 1, /*$show_all*/ false, /*$post_id*/ /*null,*/ /*$first_only*/ false, /*$start_only*/false);
-			if (count($occurences) > 0)
+			$old_query = $wp_query;
+			$wp_query = new WP_Query(
+				array(
+					'post_type' => $hec_options['post_types'],
+					'hec_start' => array(hec::sql_date($i), hec::sql_date($i+1)),
+					'nopaging' => true) );
+			
+			if (have_posts())
 			{
 				echo '<li>' . JDDayOfWeek($jd+$i,1) . '';
-				foreach ($occurences as $occurence)
-				{
-					echo '<div title="' . $occurence->title;
+				while (have_posts())  {
+					the_post();
+					echo '<div title="' . get_the_title();
 					//if (!is_null($occurence->description)) echo ' — ' . $occurence->description;
-					echo '">' . ((unixtojd($occurence->start) < $jd+$i) ? (($jd+$i == unixtojd($occurence->stop)) ? 'Until ' . hec_format_time2($occurence->stop) : 'All day') : hec_format_time2($occurence->start)) . ' — ';
-					$c = $occurence->title;
-					if (!is_null($occurence->notes)) $c .= ' (' . $occurence->notes . ')';
-					echo '<a href="' . get_permalink($occurence->post_id) . '">' . $c . '</a>';
+					echo '">' . ((unixtojd(strtotime($post->hec_start)) < $jd+$i) ? (($jd+$i == unixtojd(strtotime($post->hec_stop))) ? 'Until ' . hec_format_time2(strtotime($post->hec_stop)) : 'All day') : hec_format_time2(strtotime($post->hec_start))) . ' — ';
+					$c = get_the_title();
+					if (!is_null($post->hec_notes)) $c .= ' (' . $post->hec_notes . ')';
+					echo '<a href="' . get_permalink() . '">' . $c . '</a>';
 					echo '</div>';
 				}
 				echo '</li>';
 			}
+			
+			$wp_query = $old_query;
+			wp_reset_postdata();
+				
 		}
 		echo '</ul>';
 		if ($instance['subscribe']) echo '<div style="margin-top:10pt;">' . hec_ics_link() . '</div>';
