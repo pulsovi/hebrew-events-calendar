@@ -26,6 +26,12 @@ $hec_year_types = array(
 	'Mem-Beit-Cheit', 'Mem-Beit-Shin', 'Mem-Gimel-Kaf', 'Mem-Hei-Cheit', 'Mem-Hei-Shin', 'Mem-Zayin-Cheit', 'Mem-Zayin-Shin',
 	'Pei-Beit-Cheit', 'Pei-Beit-Shin', 'Pei-Gimel-Kaf', 'Pei-Hei-Kaf', 'Pei-Hei-Shin', 'Pei-Zayin-Cheit', 'Pei-Zayin-Shin');
 
+function my_rewrite_flush() {
+	flush_rewrite_rules();
+}
+register_activation_hook(__FILE__, 'my_rewrite_flush');
+
+
 class hec_hooks
 {
 	static function init() {
@@ -80,36 +86,48 @@ class hec_hooks
 		$wp_rewrite->flush_rules();
 		
 		if (in_array('hec_event', $hec_options['post_types']))
-		register_post_type(
-			'hec_event',
-		array(
-		'label' => 'Events',
-		'description' => 'Hebrew event',
-		'public' => true,
-		'show_ui' => true,
-		'show_in_menu' => true,
-		'capability_type' => 'post',
-		'hierarchical' => false,
-		'rewrite' => array('slug' => 'event'),
-		'query_var' => true,
-		'supports' => array('title','editor','excerpt','trackbacks','custom-fields','comments','revisions','thumbnail','author','page-attributes',),
-		'labels' => array(
-		'name' => 'Events',
-		'singular_name' => 'Event',
-		'menu_name' => 'Events',
-		'add_new' => 'Add Event',
-		'add_new_item' => 'Add New Event',
-		'edit' => 'Edit',
-		'edit_item' => 'Edit Event',
-		'new_item' => 'New Event',
-		'view' => 'View Event',
-		'view_item' => 'View Event',
-		'search_items' => 'Search Events',
-		'not_found' => 'No Events Found',
-		'not_found_in_trash' => 'No Events Found in Trash',
-		'parent' => 'Parent Event')
-		)
-		);
+		{
+			register_taxonomy(
+				'hec_event_tag',
+				'hec_event',
+				array(
+						'label' => __( 'Event Tags' ),
+						'sort' => true,
+						'args' => array( 'orderby' => 'term_order' ),
+						'rewrite' => array( 'slug' => 'tag' )));				
+			
+			register_post_type(
+				'hec_event',
+				array(
+					'label' => 'Events',
+					'description' => 'Hebrew event',
+					'public' => true,
+					'show_ui' => true,
+					'show_in_menu' => true,
+					'capability_type' => 'post',
+					'hierarchical' => false,
+					'rewrite' => array( 'slug' => 'event', 'with_front' => false ),
+					'query_var' => true,
+					'supports' => array('title','editor','excerpt','trackbacks','custom-fields','comments','revisions','thumbnail','author'),
+					'taxonomies' => array('event_tag'),
+					'labels' => array(
+						'name' => 'Events',
+						'singular_name' => 'Event',
+						'menu_name' => 'Events',
+						'add_new' => 'Add Event',
+						'add_new_item' => 'Add New Event',
+						'edit' => 'Edit',
+						'edit_item' => 'Edit Event',
+						'new_item' => 'New Event',
+						'view' => 'View Event',
+						'view_item' => 'View Event',
+						'search_items' => 'Search Events',
+						'not_found' => 'No Events Found',
+						'not_found_in_trash' => 'No Events Found in Trash',
+						'parent' => 'Parent Event')));
+			
+			//flush_rewrite_rules();
+		}
 	}
 	
 	static function admin_init() { // whitelist options
@@ -304,15 +322,17 @@ class hec_hooks
 							
 					if (have_posts()) {
 					
-						$content .= '<h3>Upcoming Occurences</h3><table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
+						$content .= '<h3>Upcoming Occurences</h3>';//<table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
 
-						while (have_posts())  {
+						$content .= hec::get_the_event_list(null, null, null, false, false);
+						
+						/*while (have_posts())  {
 							the_post();
 							$content .= '<tr><td>' . hec::date(strtotime($post->hec_start)) . '</td><td>' . hec::time(strtotime($post->hec_start)) . '</td><td>' .
 								$post->hec_notes . '</td></tr>';
 						}
 						
-						$content .= '</table>';
+						$content .= '</table>';*/
 						
 						
 					}
@@ -366,7 +386,7 @@ class hec_hooks
 			hec::calculate_all(unixtojd(strtotime($datetime[0])), unixtojd(strtotime($datetime[1])));
 			
 			$clauses['distinct'] = '';
-			$clauses['fields'] .= ", CAST(mt_start.meta_value AS DATETIME) AS hec_start, SUBSTR(mt_notes.meta_value, 12) AS hec_notes, SUBSTR(mt_stop.meta_value, 12) AS hec_stop, mt_hide.meta_value AS hec_hide";
+			$clauses['fields'] .= ", mt_start.meta_value AS hec_start, SUBSTR(mt_notes.meta_value, 12) AS hec_notes, SUBSTR(mt_stop.meta_value, 12) AS hec_stop, mt_hide.meta_value AS hec_hide";
 			$clauses['join'] .= "
 				INNER JOIN {$wpdb->postmeta} AS mt_start ON ({$wpdb->posts}.ID = mt_start.post_id)
 				LEFT JOIN {$wpdb->postmeta} AS mt_notes ON (mt_start.post_id = mt_notes.post_id AND mt_notes.meta_key = '_hec_notes' AND LEFT(mt_notes.meta_value,10) = LEFT(mt_start.meta_value,10))
@@ -471,7 +491,13 @@ class hec_shortcodes {
 		
 		extract(
 			shortcode_atts(
-				array('start' => hec::sql_date(), 'days' => 7, 'start_format' => null, 'stop_format' => null, 'multiday_stop_format' => null),
+				array(
+					'start' => hec::sql_date(),
+					'days' => 7,
+					'tags' => null,
+					'start_format' => null,
+					'stop_format' => null,
+					 'multiday_stop_format' => null),
 				$atts));
 		
 		$old_query = $wp_query;
@@ -588,11 +614,11 @@ class hec {
 		return sprintf($hec_options['ics_subscription_text'], $url, urlencode($url), $webcal, urlencode($webcal));
 	}
 	
-	static function get_the_event_list($start_format = null, $same_day_stop_format = null, $different_day_stop_format = null) {
+	static function get_the_event_list($start_format = null, $stop_format = null, $multiday_stop_format = null, $link = true, $title = true) {
 		global $post;
 		if (is_null($start_format)) $start_format = get_option('date_format') . '; ' . get_option('time_format');
-		if (is_null($same_day_stop_format)) $same_day_stop_format = get_option('time_format');
-		if (is_null($different_day_stop_format)) $different_day_stop_format = get_option('date_format') . '; ' . get_option('time_format');
+		if (is_null($stop_format)) $stop_format = get_option('time_format');
+		if (is_null($multiday_stop_format)) $multiday_stop_format = get_option('date_format') . '; ' . get_option('time_format');
 		//if (is_null($format)) $format = get_option('time_format');
 		$r = '<dl class="hec-events">';
 		while (have_posts())  {
@@ -601,7 +627,7 @@ class hec {
 			$r .= '<dt>' . date($start_format, $start);
 			if (!is_null($post->hec_stop)) {
 				$stop = strtotime($post->hec_stop);
-				$r .= ' &#x2013; ' . date((unixtojd($start) == unixtojd($stop)) ? $same_day_stop_format : $different_day_stop_format, $stop);
+				$r .= ' &#x2013; ' . date((unixtojd($start) == unixtojd($stop)) ? $stop_format : $multiday_stop_format, $stop);
 			}
 			 			
 			//if ($show_date) $r .= hec::date(strtotime($post->hec_start)) . ', ';
@@ -610,10 +636,13 @@ class hec {
 			$r .= '</dt><dd title="' . get_the_excerpt() . '">';
 			//$id = 'vevent-' . $post->ID . '-' . substr($post->hec_start, 0, 10);
 			//echo "<a class=\"colorbox-link\" href=\"#$id\">";
-			$r .= '<a href="' . get_permalink() . '">';
-			$r .= get_the_title();
-			if (!is_null($post->hec_notes)) $r .= " ({$post->hec_notes})";
-			$r .= '</a>';
+			if ($link) $r .= '<a href="' . get_permalink() . '">';
+			if ($title) {
+				$r .= get_the_title();
+				if (!is_null($post->hec_notes)) $r .= " ({$post->hec_notes})";
+			}
+			else if (!is_null($post->hec_notes)) $r .= $post->hec_notes;
+			if ($link) $r .= '</a>';
 			/*echo '<div style="display:none">';
 			 echo hec::get_the_event();
 			echo '</div>';*/
@@ -941,6 +970,8 @@ class hec_options_page {
 		wp_reset_postdata();
 
 		$hec_options = $options;
+		
+		flush_rewrite_rules();
 
 		return $options;
 	}
