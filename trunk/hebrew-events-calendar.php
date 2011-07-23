@@ -35,13 +35,15 @@ register_activation_hook(__FILE__, 'my_rewrite_flush');
 class hec_hooks
 {
 	static function init() {
-		global $hec_options, $wp_rewrite, $wp_query;
+		global $hec_options, $wp_rewrite, $wp_query, $post;
 
 		date_default_timezone_set(get_option('timezone_string'));
 		
 		$hec_old_options = get_option('hec_options', array());
 		$hec_options = array_merge(
 		array(
+				'upcoming_title' => 'Upcoming Occurences',
+				'show_upcoming' => true,
 				'latitude' => ini_get('date.default_latitude'),
 				'longitude' => ini_get('date.default_longitude'),
 				'sunrise_zenith' => ini_get('date.sunrise_zenith'),
@@ -54,7 +56,41 @@ class hec_hooks
 				'ics_title' => 'My Events',
 				'ics_description' => 'Description of my events.'),
 		$hec_old_options);
+
+		if (get_option('hec_version', 0.3) < 0.4)
+		{
+			global $wpdb;
+			
+			$old_query = $wp_query;
+			$wp_query = new WP_Query( array ( 'post_type' => 'any', 'meta_key' => '_hec_event', 'nopaging' => true ) );
+				
+			$base = array(
+				'show_upcoming' => true,
+				'upcoming_title' => true,
+				'day_limit' => true,
+				'occurence_limit' => true);
+			
+			while (have_posts()) {
+				the_post();
+				$event = get_post_meta($post->ID, '_hec_event', true);
+				if ($event != '' && !isset($event['patterns'])) {
+					$new_event = array_intersect_key($event, $base);
+					$pattern = array_diff_key($event, $base);
+					if (count($pattern) > 0) $new_event['patterns'] = array( uniqid() => $pattern );
+					update_post_meta($post->ID, '_hec_event', $new_event);
+					delete_post_meta($post->ID, '_hec_calculation');
+					delete_post_meta($post->ID, '_hec_start');
+					delete_post_meta($post->ID, '_hec_stop');
+					delete_post_meta($post->ID, '_hec_note');
+				}
+			}
 	
+			$wp_query = $old_query;
+			wp_reset_postdata();
+			
+			update_option('hec_version', 0.4);
+		}
+		
 		/*if (!isset($hec_old_options['version'])) {
 			$old_query = $wp_query;
 			$wp_query = new WP_Query( array ( 'post_type' => $hec_options['post_types'], 'meta_query' => array( array( 'key' => '_hec_event' ) ) ) );
@@ -85,7 +121,7 @@ class hec_hooks
 		if (!isset($wp_rewrite->rules, $hec_options['ics_permalink']))
 		$wp_rewrite->flush_rules();
 		
-		if (in_array('hec_event', $hec_options['post_types']))
+		/*if (in_array('hec_event', $hec_options['post_types']))
 		{
 			register_taxonomy(
 				'hec_event_tag',
@@ -127,11 +163,15 @@ class hec_hooks
 						'parent' => 'Parent Event')));
 			
 			//flush_rewrite_rules();
-		}
+		}*/
 	}
 	
 	static function admin_init() { // whitelist options
 		global $wpdb, $hec_dashboard_days, $current_user;
+		
+		wp_enqueue_style('thickbox'); // inserting style sheet for Thickbox.
+		wp_enqueue_script('jquery'); // including jquery.
+		wp_enqueue_script('thickbox'); // including Thickbox javascript.
 		
 		$hec_dashboard_days = get_user_meta($current_user, $wpdb->prefix . 'hec_dashboard_days', true);
 		if ($hec_dashboard_days == false) $hec_dashboard_days = 7;
@@ -151,17 +191,22 @@ class hec_hooks
 		add_settings_field('hec_longitude', 'Longitude', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_settings', array('name' => 'longitude', 'label_for' => 'hec_longitude'));  
 		add_settings_field('hec_sunset_zenith', 'Sunset Zenith', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_settings', array('name' => 'sunset_zenith', 'label_for' => 'hec_sunset_zenith'));  
 		add_settings_field('hec_sunrise_zenith', 'Sunrise Zenith', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_settings', array('name' => 'sunrise_zenith', 'label_for' => 'hec_sunrise_zenith'));  
-		add_settings_field('hec_occurence_limit', 'Occurence Limit', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_settings', array('name' => 'occurence_limit', 'label_for' => 'hec_occurence_limit'));  
-		add_settings_field('hec_day_limit', 'Day Limit', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_settings', array('name' => 'day_limit', 'label_for' => 'hec_day_limit'));  
 		add_settings_section('hec_ics', 'ICS Feed Settings', array( 'hec_options_page', 'callback_ics_section' ), 'hec_options');
 		add_settings_field('hec_ics_permalink', 'Permalink', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_ics', array('name' => 'ics_permalink', 'label_for' => 'hec_ics_permalink'));  
 		add_settings_field('hec_ics_title', 'Title', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_ics', array('name' => 'ics_title', 'label_for' => 'hec_ics_title'));  
 		add_settings_field('hec_ics_description', 'Description', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_ics', array('name' => 'ics_description', 'label_for' => 'hec_ics_description'));  
 		add_settings_field('hec_ics_subscription_text', 'Subscription Text', array( 'hec_options_page', 'callback_textarea_settings_field' ), 'hec_options', 'hec_ics', array('name' => 'ics_subscription_text', 'label_for' => 'hec_ics_subscription_text'));  
 		//add_settings_field('hec_post_types', 'Post Types', 'hec_sunset_zenith_field', 'hec_options', 'hec_settings');  
+		
+		add_settings_section('hec_upcoming', 'Upcoming Occurences', array( 'hec_options_page', 'callback_upcoming_section' ), 'hec_options');
+		add_settings_field('hec_show_upcoming', 'Show Upcoming Occurences', array( 'hec_options_page', 'callback_checkbox_settings_field' ), 'hec_options', 'hec_upcoming', array('name' => 'show_upcoming', 'label_for' => 'hec_show_upcoming'));  
+		add_settings_field('hec_upcoming_title', 'Title', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_upcoming', array('name' => 'upcoming_title', 'label_for' => 'hec_upcoming_title'));
+		add_settings_field('hec_day_limit', 'Day Limit', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_upcoming', array('name' => 'day_limit', 'label_for' => 'hec_day_limit'));
+		add_settings_field('hec_occurence_limit', 'Occurence Limit', array( 'hec_options_page', 'callback_text_settings_field' ), 'hec_options', 'hec_upcoming', array('name' => 'occurence_limit', 'label_for' => 'hec_occurence_limit'));
+		
 		add_settings_section('hec_post_types', 'Post Types', array( 'hec_options_page', 'callback_post_types_section' ), 'hec_options');
-		foreach (array_merge(array('hec_event'), get_post_types(array('public' => 1, 'show_ui' => 1))) as $post_type)
-			add_settings_field('hec_' . $post_type, ($post_type == 'hec_event') ? 'Event (Custom Post Type for Hebrew Events)' : get_post_type_object($post_type)->labels->name, array( 'hec_options_page', 'callback_checkbox_settings_field' ), 'hec_options', 'hec_post_types', array('name' => $post_type, 'label_for' => 'hec_' . $post_type));  
+		foreach (/*array_merge(array('hec_event'), */get_post_types(array('public' => 1, 'show_ui' => 1))/*)*/ as $post_type)
+			add_settings_field('hec_' . $post_type, /*($post_type == 'hec_event') ? 'Event (Custom Post Type for Hebrew Events)' : */get_post_type_object($post_type)->labels->name, array( 'hec_options_page', 'callback_post_type_checkbox_settings_field' ), 'hec_options', 'hec_post_types', array('name' => $post_type, 'label_for' => 'hec_' . $post_type));  
 	}
 	
 	static function admin_menu() {
@@ -187,88 +232,111 @@ class hec_hooks
 	
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) return;
 	
-		if (!wp_verify_nonce( $_REQUEST['hec_event_mb_nonce'], 'hec_update_event' )) return;
-		
+		$occurences_mb = wp_verify_nonce( $_REQUEST['hec_occurences_mb_nonce'], 'hec_update_occurences' );
+		$events_mb = wp_verify_nonce( $_REQUEST['hec_event_mb_nonce'], 'hec_update_event' );
+		if (!$occurences_mb && !$events_mb) return;
+				
 		delete_post_meta($post_ID, '_hec_hide');
 		delete_post_meta($post_ID, '_hec_notes');
 	
 		$data = get_post_meta($post_ID, '_hec_event', true);
 		$old_event = ($data == '') ? array() : $data;
 		$event = array();
+		if (!$events_mb || !$occurences_mb)
+			foreach ($old_event as $k => $v)
+			{
+				$occurence_field = $k == 'show_upcoming' || $k == 'upcoming_title' || $k == 'occurence_limit' || $k == 'day_limit' || substr($k, 0, 5) == 'hide_' || substr($k, 0, 6) == 'notes_';
+				if (($occurence_field && $events_mb) || (!$occurence_field && $occurences_mb))
+				$event[$k] = $v;
+			}
+			
+		if ($occurences_mb)
+		{
+			if (isset($_REQUEST['hec_show_upcoming']) != $hec_options['show_upcoming']) $event['show_upcoming'] = isset($_REQUEST['hec_show_upcoming']);
+			if ($_REQUEST['hec_upcoming_title'] != '' && $_REQUEST['hec_upcoming_title'] != $hec_options['upcoming_title']) $event['upcoming_title'] = $_REQUEST['hec_upcoming_title'];
+			if ($_REQUEST['hec_occurence_limit'] != '' && $_REQUEST['hec_occurence_limit'] != $hec_options['occurence_limit']) $event['occurence_limit'] = (int)$_REQUEST['hec_occurence_limit'];
+			if ($_REQUEST['hec_day_limit'] != '' && $_REQUEST['hec_day_limit'] != $hec_options['day_limit']) $event['day_limit'] = (int)$_REQUEST['hec_day_limit'];
+		}
+
+		if (isset($_REQUEST['hec_patterns'])) foreach ($_REQUEST['hec_patterns'] as $id => $pattern) {
+			if ($events_mb && !isset($_REQUEST['hec_delete'][$id]))
+			{
+				$result = array();
+				
+				//if ($pattern['subtitle'] != '') $result['subtitle'] = $pattern['subtitle'];
+				if ($pattern['start_date'] != '') $result['start_date'] = unixtojd(strtotime($pattern['start_date']));
+				if ($pattern['stop_date'] != '') $result['stop_date'] = unixtojd(strtotime($pattern['stop_date']));
+				if ($pattern['weekday'] != '') $result['weekday'] = (int)$pattern['weekday'];
+				if ($pattern['week'] != '') $result['week'] = (int)$pattern['week'];
+				if ($pattern['day'] != '') $result['day'] = (int)$pattern['day'];
+				if ($pattern['month'] != '') $result['month'] = (int)$pattern['month'];
+				if ($pattern['year'] != '') $result['year'] = (int)$pattern['year'];
+				if ($pattern['latitude'] != '') $result['latitude'] = (float)$pattern['latitude'];
+				if ($pattern['longitude'] != '') $result['longitude'] = (float)$pattern['longitude'];
+				if ($pattern['sunset_zenith'] != '') $result['sunset_zenith'] = (float)$pattern['sunset_zenith'];
+				if ($pattern['sunrise_zenith'] != '') $result['sunrise_zenith'] = (float)$pattern['sunrise_zenith'];
+				if (isset($pattern['sunrise'])) $result['sunrise'] = 1;
 		
-		if ($_REQUEST['hec_occurence_limit'] != '' && $_REQUEST['hec_occurence_limit'] != $hec_options['occurence_limit']) $event['occurence_limit'] = (int)$_REQUEST['hec_occurence_limit'];
-		if ($_REQUEST['hec_day_limit'] != '' && $_REQUEST['hec_day_limit'] != $hec_options['day_limit']) $event['day_limit'] = (int)$_REQUEST['hec_day_limit'];
-	
-		foreach ($_REQUEST['hec_settings'] as $id => $settings) {
-			
-			$result = array();
-			
-			if ($settings['start_date'] != '') $result['start_date'] = unixtojd(strtotime($settings['start_date']));
-			if ($settings['stop_date'] != '') $result['stop_date'] = unixtojd(strtotime($settings['stop_date']));
-			if ($settings['weekday'] != '') $result['weekday'] = (int)$settings['weekday'];
-			if ($settings['week'] != '') $result['week'] = (int)$settings['week'];
-			if ($settings['day'] != '') $result['day'] = (int)$settings['day'];
-			if ($settings['month'] != '') $result['month'] = (int)$settings['month'];
-			if ($settings['year'] != '') $result['year'] = (int)$settings['year'];
-			if ($settings['latitude'] != '') $result['latitude'] = (float)$settings['latitude'];
-			if ($settings['longitude'] != '') $result['longitude'] = (float)$settings['longitude'];
-			if ($settings['sunset_zenith'] != '') $result['sunset_zenith'] = (float)$settings['sunset_zenith'];
-			if ($settings['sunrise_zenith'] != '') $result['sunrise_zenith'] = (float)$settings['sunrise_zenith'];
-			if (isset($settings['sunrise'])) $result['sunrise'] = 1;
-	
-			$t = rtrim(trim(strtoupper($settings['time'])), 'M');
-			if ($t != '')
-			{
-				if (substr($t, -1) != 'A' && substr($t, -1) != 'P') $result['time_offset'] = true;
-				$parts = explode(':', rtrim($t, 'AP'));
-				$result['time'] = ($result['time_offset']) ?
-				((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(((int)$parts[0] < 0) ? -(int)$parts[1] : (int)$parts[1]))) :
-				(((count($parts) == 1) ? (int)$parts[0]*60 : ((int)$parts[0]*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
-				if (substr($t,0,2) == '-0') $result['time'] = -$result['time'];
-			}
-	
-			$t = trim($settings['duration']);
-			if ($t != '')
-			{
-				$p = explode(':', $t);
-				if (count($p) == 1)
+				$t = rtrim(trim(strtoupper($pattern['time'])), 'M');
+				if ($t != '')
 				{
-					$p = explode(' ', $p[0]);
-					$result['duration_days'] = (int)$p[0];
-					if (count($p) > 1) $result['duration_minutes'] = 60*(int)$p[1];
+					if (substr($t, -1) != 'A' && substr($t, -1) != 'P') $result['time_offset'] = true;
+					$parts = explode(':', rtrim($t, 'AP'));
+					$result['time'] = ($result['time_offset']) ?
+					((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(((int)$parts[0] < 0) ? -(int)$parts[1] : (int)$parts[1]))) :
+					(((count($parts) == 1) ? (int)$parts[0]*60 : ((int)$parts[0]*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
+					if (substr($t,0,2) == '-0') $result['time'] = -$result['time'];
 				}
-				else
+		
+				$t = trim($pattern['duration']);
+				if ($t != '')
 				{
-					$result['duration_minutes'] = (int)$p[1];
-					$p = explode(' ', $p[0]);
-					if (count($p) > 1) $result['duration_days'] = (int)$p[0];
-					$result['duration_minutes'] += 60*(int)$p[(count($p) == 1) ? 0 : 1];
+					$p = explode(':', $t);
+					if (count($p) == 1)
+					{
+						$p = explode(' ', $p[0]);
+						$result['duration_days'] = (int)$p[0];
+						if (count($p) > 1) $result['duration_minutes'] = 60*(int)$p[1];
+					}
+					else
+					{
+						$result['duration_minutes'] = (int)$p[1];
+						$p = explode(' ', $p[0]);
+						if (count($p) > 1) $result['duration_days'] = (int)$p[0];
+						$result['duration_minutes'] += 60*(int)$p[(count($p) == 1) ? 0 : 1];
+					}
+				}
+		
+				foreach ($hec_year_types as $year_type)
+				{
+					$alt_year_type = str_replace('-', '_', $year_type);
+					if ($pattern['encoded_day'][$alt_year_type] != '') $result['day_' . $year_type] = (int)$pattern['encoded_day'][$alt_year_type];
+					if ($pattern['encoded_month'][$alt_year_type] != '') $result['month_' . $year_type] = (int)$pattern['encoded_month'][$alt_year_type];
+				}
+				
+				if (count($result) != 0)
+				{
+					if (!isset($event['patterns'])) $event['patterns'] = array();
+					$event['patterns'][$id] = $result;
 				}
 			}
 	
-			foreach ($hec_year_types as $year_type)
+			if ($occurences_mb)
 			{
-				$alt_year_type = str_replace('-', '_', $year_type);
-				if ($settings['encoded_day'][$alt_year_type] != '') $result['day_' . $year_type] = (int)$settings['encoded_day'][$alt_year_type];
-				if ($settings['encoded_month'][$alt_year_type] != '') $result['month_' . $year_type] = (int)$settings['encoded_month'][$alt_year_type];
-			}
-			
-			if (isset($settings['notes']))
-			{
-				$show = (isset($settings['show'])) ? $settings['show'] : array();
-				foreach ($settings['notes'] as $jd => $notes)
+				if (isset($pattern['notes']))
 				{
-					if (!isset($show[$jd])) add_post_meta($post_ID, '_hec_hide', $jd);
-					if ($notes != '') add_post_meta($post_ID, '_hec_notes', $jd . ',' . $notes);
+					$show = (isset($pattern['show'])) ? $pattern['show'] : array();
+					foreach ($pattern['notes'] as $jd => $notes)
+					{
+						if (!isset($show[$jd])) add_post_meta($post_ID, '_hec_hide', $jd);
+						if ($notes != '') add_post_meta($post_ID, '_hec_notes', $jd . ',' . $notes);
+					}
 				}
-			}
-			
-			if (count($result) != 0)
-			{
-				if (!isset($event['settings'])) $event['settings'] = array();
-				$event['settings'][$id] = $result;
 			}
 		}
+		
+		if (isset($_REQUEST['hec_add']))
+			$event['patterns'][uniqid()] = array();//($_REQUEST['hec_new_subtitle'] == '') ? array() : array('subtitle' => $_REQUEST['hec_new_subtitle']);
 	
 		if (empty($event))
 			delete_post_meta($post_ID, '_hec_event');
@@ -285,9 +353,9 @@ class hec_hooks
 	static function add_meta_boxes() {
 		global $hec_options;
 		foreach ($hec_options['post_types'] as $post_type) {
-			add_meta_box('hec-event-mb', 'Hebrew Event', array( 'hec_metaboxes', 'callback_event_metabox' ), $post_type, 'normal');
+			add_meta_box('hec-event-mb', 'Hebrew Event', array( 'hec_metaboxes', 'callback_event_metabox' ), $post_type, 'side');
 			//add_meta_box('hec-related-mb', 'Related Hebrew Events', array( 'hec_metaboxes', 'callback_related_metabox' ), $post_type, 'side');
-			//add_meta_box('hec-occurences-mb', 'Hebrew Event Occurences', array( 'hec_metaboxes', 'callback_occurences_metabox' ), $post_type, 'normal');
+			add_meta_box('hec-occurences-mb', 'Hebrew Event Occurences', array( 'hec_metaboxes', 'callback_occurences_metabox' ), $post_type, 'normal');
 		}
 	}
 
@@ -306,7 +374,7 @@ class hec_hooks
 	
 		if (is_singular() && in_array(get_post_type(), $hec_options['post_types'])) {
 			$event = get_post_meta(get_the_ID(), '_hec_event', true);
-			if ($event != '') {
+			if ($event != '' && ((isset($event['show_upcoming']) && $event['show_upcoming']) || (!isset($event['show_upcoming']) && $hec_options['show_upcoming']))) {
 				$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
 				if ($occurence_limit > 0) {
 					$old_query = $wp_query;
@@ -318,7 +386,7 @@ class hec_hooks
 							
 					if (have_posts()) {
 					
-						$content .= '<h3>Upcoming Occurences</h3>';//<table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
+						$content .= '<h3>' . ((isset($event['upcoming_title'])) ? $event['upcoming_title'] : $hec_options['upcoming_title']) . '</h3>';//<table><tr><th>Date</th><th>Time</th><th>Notes</th></tr>';
 
 						$content .= hec::get_the_event_list(null, null, null, false, false);
 						
@@ -385,7 +453,7 @@ class hec_hooks
 			hec::calculate_all(unixtojd(strtotime($datetime[0])), unixtojd(strtotime($datetime[1])));
 			
 			$clauses['distinct'] = '';
-			$clauses['fields'] .= ", LEFT(mt_start.meta_value, 13) AS hec_id, SUBSTR(mt_start.meta_value, 15) AS hec_start, SUBSTR(mt_notes.meta_value, 25) AS hec_notes, SUBSTR(mt_stop.meta_value, 25) AS hec_stop, mt_hide.meta_value AS hec_hide";
+			$clauses['fields'] .= ", LEFT(mt_start.meta_value, 13) AS hec_id, SUBSTR(mt_start.meta_value, 15) AS hec_start, SUBSTR(mt_notes.meta_value, 26) AS hec_notes, SUBSTR(mt_stop.meta_value, 26) AS hec_stop, mt_hide.meta_value AS hec_hide";
 			$clauses['join'] .= "
 				INNER JOIN {$wpdb->postmeta} AS mt_start ON ({$wpdb->posts}.ID = mt_start.post_id)
 				LEFT JOIN {$wpdb->postmeta} AS mt_notes ON (mt_start.post_id = mt_notes.post_id AND mt_notes.meta_key = '_hec_notes' AND LEFT(mt_notes.meta_value, 24) = LEFT(mt_start.meta_value, 24))
@@ -395,7 +463,7 @@ class hec_hooks
 			if ($wp_query->get('hec_id'))
 				$clauses['where'] .= " AND LEFT(mt_start.meta_value, 13) = '" . $wp_query->get('hec_id') . "'";
 			$clauses['where'] .= ($wp_query->get('hec_range')) ?
-				" AND ((mt_stop.meta_key IS NULL AND mt_start.meta_key = '_hec_start' AND CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}') OR (CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) <= '{$datetime[1]}' AND CAST(SUBSTR(mt_stop.meta_value, 25) AS DATETIME) >= '{$datetime[0]}'))" :
+				" AND ((mt_stop.meta_key IS NULL AND mt_start.meta_key = '_hec_start' AND CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}') OR (CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) <= '{$datetime[1]}' AND CAST(SUBSTR(mt_stop.meta_value, 26) AS DATETIME) >= '{$datetime[0]}'))" :
 				" AND CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}'";
 			if (!$wp_query->get('hec_show_all'))
 				$clauses['where'] .= " AND mt_hide.meta_key IS NULL";
@@ -795,11 +863,11 @@ class hec {
 		$event = get_post_meta($post_id, '_hec_event', true);
 		if ($event == '') return;
 		
-		if (isset($event['settings']))
+		if (isset($event['patterns']))
 		
-		foreach ($event['settings'] as $id => $setting) {
+		foreach ($event['patterns'] as $id => $pattern) if (count($pattern) > 0) {
 		
-			if ((isset($setting['start_date']) && ($stop < $setting['start_date'])) || (isset($setting['stop_date']) && ($start > $setting['stop_date']))) return;
+			if ((isset($pattern['start_date']) && ($stop < $pattern['start_date'])) || (isset($pattern['stop_date']) && ($start > $pattern['stop_date']))) return;
 			
 			$calculation = get_post_meta($post_id, '_hec_calculation', true);
 			//if ($calculation == '') unset($calculation);
@@ -809,16 +877,16 @@ class hec {
 				$stop = max($stop, $calculation[0]);
 			}
 			
-			$latitude = (isset($setting['latitude'])) ? $setting['latitude'] : $hec_options['latitude'];
-			$longitude = (isset($setting['longitude'])) ? $setting['longitude'] : $hec_options['longitude'];
-			$sunset_zenith = (isset($setting['sunset_zenith'])) ? $setting['sunset_zenith'] : $hec_options['sunset_zenith'];
-			$sunrise_zenith = (isset($setting['sunrise_zenith'])) ? $setting['sunrise_zenith'] : $hec_options['sunrise_zenith'];
+			$latitude = (isset($pattern['latitude'])) ? $pattern['latitude'] : $hec_options['latitude'];
+			$longitude = (isset($pattern['longitude'])) ? $pattern['longitude'] : $hec_options['longitude'];
+			$sunset_zenith = (isset($pattern['sunset_zenith'])) ? $pattern['sunset_zenith'] : $hec_options['sunset_zenith'];
+			$sunrise_zenith = (isset($pattern['sunrise_zenith'])) ? $pattern['sunrise_zenith'] : $hec_options['sunrise_zenith'];
 			
 			//echo $latitude . ' ' . $longitude . ' ' . $sunset_zenith . ' ';
 	
 			for ( $julian_date = $start; $julian_date <= $stop; $julian_date++ ) {
 				
-				if ((isset($setting['start_date']) && ($julian_date<$setting['start_date'])) || (isset($setting['stop_date']) && ($julian_date>$setting['stop_date']))) continue;
+				if ((isset($pattern['start_date']) && ($julian_date<$pattern['start_date'])) || (isset($pattern['stop_date']) && ($julian_date>$pattern['stop_date']))) continue;
 		
 				if ($calculation != '' && $calculation[0] <= $julian_date && $calculation[1] >= $julian_date) continue;
 				
@@ -853,73 +921,73 @@ class hec {
 				$j0 = true;
 				$j1 = true;
 		
-				if (isset($setting['year'])) {
-					if ($setting['year'] < 5000) {
-						if ($setting['year'] != $year) continue;
+				if (isset($pattern['year'])) {
+					if ($pattern['year'] < 5000) {
+						if ($pattern['year'] != $year) continue;
 					} else {
-						$j0 = ($j0 && ($setting['year'] == $jyear0));
-						$j1 = ($j1 && ($setting['year'] == $jyear1));
+						$j0 = ($j0 && ($pattern['year'] == $jyear0));
+						$j1 = ($j1 && ($pattern['year'] == $jyear1));
 						if (!$j0 && !$j1) continue;
 					}
 				}
 		
-				if (isset($setting['month'])) {
-					if ($setting['month'] < 0) {
-						$j0 = ($j0 && (-$setting['month'] == $jmonth0));
-						$j1 = ($j1 && (-$setting['month'] == $jmonth1));
+				if (isset($pattern['month'])) {
+					if ($pattern['month'] < 0) {
+						$j0 = ($j0 && (-$pattern['month'] == $jmonth0));
+						$j1 = ($j1 && (-$pattern['month'] == $jmonth1));
 						if (!$j0 && !$j1) continue;
 					}
-					else if ($setting['month'] != $month) continue;
+					else if ($pattern['month'] != $month) continue;
 				}
 		
-				if (isset($setting['day'])) {
-					if ($setting['month'] < 0) {
-						$j0 = ($j0 && ($setting['day'] == $jday0));
-						$j1 = ($j1 && ($setting['day'] == $jday1));
+				if (isset($pattern['day'])) {
+					if ($pattern['month'] < 0) {
+						$j0 = ($j0 && ($pattern['day'] == $jday0));
+						$j1 = ($j1 && ($pattern['day'] == $jday1));
 						if (!$j0 && !$j1) continue;
 					}
-					else if ($setting['day'] != $day) continue;
+					else if ($pattern['day'] != $day) continue;
 				}
 		
-				if (isset($setting['week'])) {
-					if ($setting['month'] < 0) {
-						$j0 = ($j0 && ($setting['week'] == $jweek0));
-						$j1 = ($j1 && ($setting['week'] == $jweek1));
+				if (isset($pattern['week'])) {
+					if ($pattern['month'] < 0) {
+						$j0 = ($j0 && ($pattern['week'] == $jweek0));
+						$j1 = ($j1 && ($pattern['week'] == $jweek1));
 						if (!$j0 && !$j1) continue;
 					}
-					else if ($setting['week'] != $week) continue;
+					else if ($pattern['week'] != $week) continue;
 				}
 		
-				if (isset($setting['weekday'])) {
-					if ($setting['weekday'] < 0) {
-						$j0 = ($j0 && ((-$setting['weekday']-1) == $weekday));
-						$j1 = ($j1 && (((-$setting['weekday']+5) % 7) == $weekday));
+				if (isset($pattern['weekday'])) {
+					if ($pattern['weekday'] < 0) {
+						$j0 = ($j0 && ((-$pattern['weekday']-1) == $weekday));
+						$j1 = ($j1 && (((-$pattern['weekday']+5) % 7) == $weekday));
 						if (!$j0 && !$j1) continue;
 					}
-					else if ($setting['weekday']-1 != $weekday) continue;
+					else if ($pattern['weekday']-1 != $weekday) continue;
 				}
 		
-				if (array_key_exists('month_' . $jtype0, $setting))
-					$j0 = ($j0 && ($setting['month_' . $jtype0] == $jmonth0));
+				if (array_key_exists('month_' . $jtype0, $pattern))
+					$j0 = ($j0 && ($pattern['month_' . $jtype0] == $jmonth0));
 		
-				if (array_key_exists('month_' . $jtype1, $setting))
-					$j1 = ($j1 && ($setting['month_' . $jtype1] == $jmonth1));
+				if (array_key_exists('month_' . $jtype1, $pattern))
+					$j1 = ($j1 && ($pattern['month_' . $jtype1] == $jmonth1));
 		
-				if (array_key_exists('day_' . $jtype0, $setting))
-					$j0 = ($j0 && ($setting['day_' . $jtype0] == $jday0));
+				if (array_key_exists('day_' . $jtype0, $pattern))
+					$j0 = ($j0 && ($pattern['day_' . $jtype0] == $jday0));
 			
-				if (array_key_exists('day_' . $jtype1, $setting))
-					$j1 = ($j1 && ($setting['day_' . $jtype1] == $jday1));
+				if (array_key_exists('day_' . $jtype1, $pattern))
+					$j1 = ($j1 && ($pattern['day_' . $jtype1] == $jday1));
 		
 				if (!$j0 && !$j1) continue;
 		
-				$hebrew = ((isset($setting['time_offset']) || !isset($setting['time'])) && (count(preg_grep('/^(day|month)_/', array_keys($setting))) > 0 || $setting['weekday'] < 0 || ($setting['month'] < 0 && isset($setting['day']))));
-				$offset = ((is_null($setting['time'])) ? 0 : ((int)$setting['time']*60));
+				$hebrew = ((isset($pattern['time_offset']) || !isset($pattern['time'])) && (count(preg_grep('/^(day|month)_/', array_keys($pattern))) > 0 || $pattern['weekday'] < 0 || ($pattern['month'] < 0 && isset($pattern['day']))));
+				$offset = ((is_null($pattern['time'])) ? 0 : ((int)$pattern['time']*60));
 		
-				if ($setting['sunrise'] && $hebrew) $j1 = false;
+				if ($pattern['sunrise'] && $hebrew) $j1 = false;
 				if (!$j0 && !$j1) continue;
 		
-				$t = (($setting['sunrise']) ?
+				$t = (($pattern['sunrise']) ?
 					date_sunrise($midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunrise_zenith) :
 					(($hebrew) ? date_sunset(($j0) ? $midnight-1 : $midnight, SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) : $midnight)) + $offset;
 		
@@ -927,13 +995,13 @@ class hec {
 				
 				add_post_meta($post_id, '_hec_start', $id . ',' .hec::sql_date_time(0, $t));
 							
-				if (isset($setting['duration_days']) || isset($setting['duration_minutes'])) {
-					$tstop = (isset($setting['duration_days'])) ?
+				if (isset($pattern['duration_days']) || isset($pattern['duration_minutes'])) {
+					$tstop = (isset($pattern['duration_days'])) ?
 						((($hebrew) ?
-							date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$setting['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
-							($t + 86400*$setting['duration_days'])))
+							date_sunset((($j0) ? $midnight-1 : $midnight) + 86400*$pattern['duration_days'], SUNFUNCS_RET_TIMESTAMP, $latitude, $longitude, $sunset_zenith) :
+							($t + 86400*$pattern['duration_days'])))
 						: $t;
-					if (isset($setting['duration_minutes'])) $tstop += 60*(int)$setting['duration_minutes'];
+					if (isset($pattern['duration_minutes'])) $tstop += 60*(int)$pattern['duration_minutes'];
 					add_post_meta($post_id, '_hec_stop',  $id . ',' . hec::sql_date(0, $t) . ',' . hec::sql_date_time(0, $tstop));
 				}
 			}
@@ -962,6 +1030,7 @@ class hec_options_page {
 		$options['occurence_limit'] = intval($options['occurence_limit']);
 		$options['day_limit'] = intval($options['day_limit']);
 		$options['post_types'] = array_keys($options['post_types']);
+		$options['show_upcoming'] = isset($options['show_upcoming']);
 		
 		$old_query = $wp_query;
 		$wp_query = new WP_Query( array ( 'nopaging' => true, 'post_type' => $options['post_types'] ) );
@@ -992,6 +1061,10 @@ class hec_options_page {
 		echo '<p>Main settings for Hebrew events.</p>';
 	}
 	
+	static function callback_upcoming_section() {
+		echo '<p>Settings for upcoming occurence list attached to event page/post.</p>';
+	}
+	
 	static function callback_post_types_section() {
 		echo '<p>Post Types with Hebrew event data.</p>';
 	}
@@ -1006,10 +1079,17 @@ class hec_options_page {
 		echo '<textarea id="' . $args['label_for'] . '" class="theEditor" rows="5" cols="40" name="hec_options[' . $args['name']. ']">' . htmlentities($hec_options[$args['name']]) . '</textarea>';
 	}
 	
-	static function callback_checkbox_settings_field($args) {
+	static function callback_post_type_checkbox_settings_field($args) {
 		global $hec_options;
 		echo '<input id="' . $args['label_for'] . '" name="hec_options[post_types][' . $args['name']. ']" type="checkbox"';
 		if (in_array($args['name'], $hec_options['post_types'])) echo ' checked';
+		echo '/>';
+	}
+	
+	static function callback_checkbox_settings_field($args) {
+		global $hec_options;
+		echo '<input id="' . $args['label_for'] . '" name="' . $args['name'] . '" type="checkbox"';
+		if ($hec_options[$args['name']]) echo ' checked';
 		echo '/>';
 	}
 	
@@ -1036,207 +1116,141 @@ class hec_options_page {
 
 class hec_metaboxes {
 	
-	static function event_settings($id, $settings, $day_limit) {
+	static function event_pattern($id, $pattern, $number) {
 		global $post, $wp_query, $hec_year_types, $hec_months, $hec_weekdays;
-		
-		$old_query = $wp_query;
-		$wp_query = new WP_Query(
-		array(
-			'post__in' => array( $post->ID ),
-			'hec_show_all' => true,
-			'hec_id' => $id,
-			'post_type' => 'any',
-			'hec_date_time' => array(hec::sql_date_time(), hec::sql_date_time($day_limit)),
-			'nopaging' => true) );
-			
-		//$occurences = hec::get_occurences(array('day_limit' => $day_limit, 'show_hidden' => true), /*unixtojd(),  $day_limit, true, false, true,*/ array('post__in' => array($post->ID)));
-		// Use nonce for verification
-		//wp_nonce_field( plugin_basename( __FILE__ ), 'myplugin_noncename' );
-		
+
 		?>
 		
-		<tr><th>Settings</th><th>Occurences</th></tr>
 		<tr>
-		<td style="vertical-align:top">
+			<th colspan="3">Pattern #<?php echo $number; ?></th>
+		</tr>
+	
+		<tr>
+			<td class="left"><label for="hec_time_<?php echo $id; ?>">Time</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][time]" type="text" id="hec_time_<?php echo $id; ?>" value="<?php echo hec_format_time($pattern); ?>"/></td>
+		</tr>
 
-			<table>
-		
-				<tr>
-					<th class="left"><label for="hec_time">Time</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][time]" type="text" id="hec_time" value="<?php echo hec_format_time($settings); ?>"/></td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_weekday">Weekday</label></th>
-					<td>
-						<select name="hec_settings[<?php echo $id; ?>][weekday]" id="hec_weekday">
-							<option value="">None</option>
-							<?php
-								foreach ($hec_weekdays as $i => $name)
-								{
-									echo '<option value="' . $i . '"';
-									if ($settings['weekday'] == $i) echo ' selected="selected"';
-									echo '>' . $name . '</option>';
-								}  ?>
-						</select>
-					</td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_week">Week</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][week]" type="text" id="hec_week" value="<?php echo $settings['week']; ?>"/></td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_day">Day</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][day]" type="text" id="hec_day" value="<?php echo $settings['day']; ?>"/></td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_month">Month</label></th>
-					<td>
-						<select name="hec_settings[<?php echo $id; ?>][month]" id="hec_month">
-							<option value="">None</option>
-							<?php
-							foreach ($hec_months as $i => $name)
-							{
-								echo '<option value="' . $i . '"';
-								if ($settings['month'] == $i) echo ' selected="selected"';
-								echo '>' . $name . '</option>';
-							}  ?>
-						</select>
-					</td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_year">Year</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][year]" type="text" id="hec_year" value="<?php echo $settings['year']; ?>"/></td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_sunrise">Sunrise</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][sunrise]" type="checkbox" id="hec_sunrise" <?php if ($settings['sunrise']) echo ' checked'; ?>/></td>
-				</tr>
-		
-				<tr>
-					<th class="left"><label for="hec_duration">Duration</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][duration]" type="text" id="hec_duration" value="<?php echo trim($settings['duration_days'] . ((isset($settings['duration_minutes'])) ? sprintf(' %u:%02u',floor($settings['duration_minutes'] / 60), $settings['duration_minutes'] % 60) : '')); ?>"/></td>
-				</tr>
-		
-				<tr title="Start date of event window. Before this date the event will not be shown.">
-					<th class="left"><label for="hec_start_date">Start Date</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][start_date]" type="text" id="hec_start_date" value="<?php if (isset($settings['start_date'])) echo strftime('%m/%d/%Y', jdtounix($settings['start_date'])); ?>"/></td>
-				</tr>
-		
-				<tr title="Stop date of event window. After this date the event will not be shown.">
-					<th class="left"><label for="hec_stop_date">Stop Date</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][stop_date]" type="text" id="hec_stop_date" value="<?php if (isset($settings['stop_date'])) echo strftime('%m/%d/%Y', jdtounix($settings['stop_date'])); ?>"/></td>
-				</tr>
-				
-				<tr>
-					<th class="left"><label for="hec_latitude">Latitude</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][latitude]" type="text" id="hec_latitude" value="<?php echo $settings['latitude']; ?>"/></td>
-				</tr>
-				
-				<tr>
-					<th class="left"><label for="hec_longitude">Longitude</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][longitude]" type="text" id="hec_longitude" value="<?php echo $settings['longitude']; ?>"/></td>
-				</tr>
-				
-				<tr>
-					<th class="left"><label for="hec_sunset_zenith">Sunset Zenith</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][sunset_zenith]" type="text" id="hec_sunset_zenith" value="<?php echo $settings['sunset_zenith']; ?>"/></td>
-				</tr>
-				
-				<tr>
-					<th class="left"><label for="hec_sunrise_zenith">Sunrise Zenith</label></th>
-					<td><input name="hec_settings[<?php echo $id; ?>][sunrise_zenith]" type="text" id="hec_sunrise_zenith" value="<?php echo $settings['sunrise_zenith']; ?>"/></td>
-				</tr>
-				
-			</table>
-		
-			<p><strong>Hebrew Encoded Dates:</strong></p>
-		
-			<table>
-				<thead>
-					<tr>
-						<th>Type</th>
-						<th>Day</th>
-						<th>Month</th>
-					</tr>
-				</thead>
-		
-				<tfoot>
-					<tr>
-						<th>Type</th>
-						<th>Day</th>
-						<th>Month</th>
-					</tr>
-				</tfoot>
-		
-				<tbody>
-					<?php foreach ($hec_year_types as $year_type) : ?>
-						<tr>
-							<td><?php echo $year_type; ?></td>
-							<td><input name="hec_settings[<?php echo $id; ?>][encoded_day][<?php echo str_replace('-', '_', $year_type);?>]" type="text" value="<?php echo $settings['day_' . $year_type]; ?>" size="4"/></td>
-							<td>
-								<select name="hec_settings[<?php echo $id; ?>][encoded_month][<?php echo str_replace('-', '_', $year_type);?>]">
-									<option value="">None</option>
-									<?php foreach ($hec_months as $i => $name) :
-										if ($i < 0) : ?>
-											<option value="<?php echo abs($i); ?>" <?php if ($settings['month_' . $year_type] == abs($i)) echo ' selected="selected"'; ?> >
-												<?php echo $name; ?>
-											</option>
-										<?php endif; endforeach; ?>
-								</select>
-							</td>
-						</tr>
-					<?php endforeach; ?>
-				</tbody>
-			</table>		
-			
-		</td>
-		
-		<td style="vertical-align:top">
+		<tr>
+			<td class="left"><label for="hec_weekday_<?php echo $id; ?>">Weekday</label></td>
+			<td colspan="2">
+				<select name="hec_patterns[<?php echo $id; ?>][weekday]" id="hec_weekday_<?php echo $id; ?>">
+					<option value="">None</option>
+					<?php
+						foreach ($hec_weekdays as $i => $name)
+						{
+							echo '<option value="' . $i . '"';
+							if ($pattern['weekday'] == $i) echo ' selected="selected"';
+							echo '>' . $name . '</option>';
+						}  ?>
+				</select>
+			</td>
+		</tr>
 
-			<?php if (have_posts()) : ?>
-			<table>
-				<thead>
-					<tr>
-						<th>Show</th>
-						<th>Date</th>
-						<th>Notes</th>
-					</tr>
-				</thead>
-				
-				<tfoot>
-					<tr>
-						<th>Show</th>
-						<th>Date</th>
-						<th>Notes</th>
-					</tr>
-				</tfoot>
-		
-				<tbody><?php
-				while (have_posts())  {
-					the_post();
-					$label = $id . ',' . substr($post->hec_start, 0, 10);
-					//$jd = unixtojd($occurence->start);
-					echo '<tr><td><input name="hec_settings[' . $id . '][show][' . $label . ']" type="checkbox"'. (($post->hec_hide) ? '' : ' checked="yes"') .'/></td><td>' .
-					hec::date(strtotime($post->hec_start)) .
-					'</td><td><input size="40" name="hec_settings[' . $id . '][notes][' . $label . ']" type="text" value="' . $post->hec_notes . '"/></td></tr>'; }
-				?>
-				</tbody>
-			</table>
-			<?php else: ?>
-			<p>No occurences in the next <?php echo $day_limit; ?> days.</p>
-			<?php endif;  
-			$wp_query = $old_query;
-			wp_reset_postdata(); ?>
-		
-		</td>
+		<tr>
+			<td class="left"><label for="hec_week_<?php echo $id; ?>">Week</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][week]" type="text" id="hec_week_<?php echo $id; ?>" value="<?php echo $pattern['week']; ?>"/></td>
+		</tr>
+
+		<tr>
+			<td class="left"><label for="hec_day_<?php echo $id; ?>">Day</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][day]" type="text" id="hec_day_<?php echo $id; ?>" value="<?php echo $pattern['day']; ?>"/></td>
+		</tr>
+
+		<tr>
+			<td class="left"><label for="hec_month_<?php echo $id; ?>">Month</label></td>
+			<td colspan="2">
+				<select name="hec_patterns[<?php echo $id; ?>][month]" id="hec_month_<?php echo $id; ?>">
+					<option value="">None</option>
+					<?php
+					foreach ($hec_months as $i => $name)
+					{
+						echo '<option value="' . $i . '"';
+						if ($pattern['month'] == $i) echo ' selected="selected"';
+						echo '>' . $name . '</option>';
+					}  ?>
+				</select>
+			</td>
+		</tr>
+
+		<tr>
+			<td class="left"><label for="hec_year_<?php echo $id; ?>">Year</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][year]" type="text" id="hec_year_<?php echo $id; ?>" value="<?php echo $pattern['year']; ?>"/></td>
+		</tr>
+
+		<tr>
+			<td class="left"><label for="hec_sunrise_<?php echo $id; ?>">Sunrise</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][sunrise]" type="checkbox" id="hec_sunrise_<?php echo $id; ?>" <?php if ($pattern['sunrise']) echo ' checked'; ?>/></td>
+		</tr>
+
+		<tr>
+			<td class="left"><label for="hec_duration_<?php echo $id; ?>">Duration</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][duration]" type="text" id="hec_duration_<?php echo $id; ?>" value="<?php echo trim($pattern['duration_days'] . ((isset($pattern['duration_minutes'])) ? sprintf(' %u:%02u',floor($pattern['duration_minutes'] / 60), $pattern['duration_minutes'] % 60) : '')); ?>"/></td>
 		</tr>
 		
+		<tr class="hec_advanced" title="Start date of event window. Before this date the event will not be shown.">
+			<td class="left"><label for="hec_start_date_<?php echo $id; ?>">Start Date</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][start_date]" type="text" id="hec_start_date_<?php echo $id; ?>" value="<?php if (isset($pattern['start_date'])) echo strftime('%m/%d/%Y', jdtounix($pattern['start_date'])); ?>"/></td>
+		</tr>
+
+		<tr class="hec_advanced" title="Stop date of event window. After this date the event will not be shown.">
+			<td class="left"><label for="hec_stop_date_<?php echo $id; ?>">Stop Date</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][stop_date]" type="text" id="hec_stop_date_<?php echo $id; ?>" value="<?php if (isset($pattern['stop_date'])) echo strftime('%m/%d/%Y', jdtounix($pattern['stop_date'])); ?>"/></td>
+		</tr>
+		
+		<tr class="hec_advanced">
+			<td class="left"><label for="hec_latitude_<?php echo $id; ?>">Latitude</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][latitude]" type="text" id="hec_latitude_<?php echo $id; ?>" value="<?php echo $pattern['latitude']; ?>"/></td>
+		</tr>
+		
+		<tr class="hec_advanced">
+			<td class="left"><label for="hec_longitude_<?php echo $id; ?>">Longitude</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][longitude]" type="text" id="hec_longitude_<?php echo $id; ?>" value="<?php echo $pattern['longitude']; ?>"/></td>
+		</tr>
+		
+		<tr class="hec_advanced">
+			<td class="left"><label for="hec_sunset_zenith_<?php echo $id; ?>">Sunset Zenith</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][sunset_zenith]" type="text" id="hec_sunset_zenith_<?php echo $id; ?>" value="<?php echo $pattern['sunset_zenith']; ?>"/></td>
+		</tr>
+		
+		<tr class="hec_advanced">
+			<td class="left"><label for="hec_sunrise_zenith_<?php echo $id; ?>">Sunrise Zenith</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][sunrise_zenith]" type="text" id="hec_sunrise_zenith_<?php echo $id; ?>" value="<?php echo $pattern['sunrise_zenith']; ?>"/></td>
+		</tr>
+
+		<tr class="hec_advanced">
+			<th colspan="3">Hebrew Encoded Dates:</th>
+		</tr>
+
+		<tr class="hec_advanced">
+			<th>Type</th>
+			<th>Day</th>
+			<th>Month</th>
+		</tr>
+
+		<?php foreach ($hec_year_types as $year_type) : $yt = str_replace('-', '_', $year_type); ?>
+			<tr class="hec_advanced">
+				<td><label for="hec_encoded_day_<?php echo $id . '_' . $yt; ?>"><?php echo $year_type; ?></label></td>
+				<td><input id="hec_encoded_day_<?php echo $id . '_' . $yt; ?>" name="hec_patterns[<?php echo $id; ?>][encoded_day][<?php echo $yt;?>]" type="text" value="<?php echo $pattern['day_' . $year_type]; ?>" size="4"/></td>
+				<td>
+					<select id="hec_encoded_month_<?php echo $id . '_' . $yt; ?>" name="hec_patterns[<?php echo $id; ?>][encoded_month][<?php echo $yt;?>]">
+						<option value="">None</option>
+						<?php foreach ($hec_months as $i => $name) :
+							if ($i < 0) : ?>
+								<option value="<?php echo abs($i); ?>" <?php if ($pattern['month_' . $year_type] == abs($i)) echo ' selected="selected"'; ?> >
+									<?php echo $name; ?>
+								</option>
+							<?php endif; endforeach; ?>
+					</select>
+				</td>
+			</tr>
+		<?php endforeach; ?>
+		
+		<tr>
+			<td colspan="3" class="hec_separator">
+				<input type="submit" name="hec_delete[<?php echo $id; ?>]" value="Delete" class="button"/>
+			</td>
+		</tr>
+			
 		<?php
 	}
 	
@@ -1250,33 +1264,165 @@ class hec_metaboxes {
 	
 		$day_limit = (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'];
 		$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
+
+		?>
+		<style type="text/css">
+			#hec-event-mb th {
+				padding-top: 8px;
+				padding-bottom: 8px;
+			}
+			
+			.hec_separator {
+				padding-bottom: 8px;
+				border-bottom: 1px solid #DFDFDF;
+			}
+		</style>
+		
+		<?php 
+		echo '<table><tbody>';
+		if (isset($event['patterns']))
+		{
+			$advanced = false;
+			$number = 1;
+			foreach ($event['patterns'] as $id => $pattern)
+			{
+				$advanced = $advanced || count(preg_grep('/^(start_date|stop_date|latitude|longitude|sunset_zenith|sunrise_zenith|day_|month_)/', array_keys($pattern))) > 0;
+				self::event_pattern($id, $pattern, $number);
+				$number++;
+			}
+			if (!$advanced) {
+				echo '<style type="text/css">.hec_advanced { display: none; }</style>';
+			}
+		}			
 		
 		?>
-
-		<table>
-			<tr>
-				<th><label for="hec_occurence_limit">Occurence Limit</label></th>
-				<td><input name="hec_occurence_limit" type="text" id="hec_occurence_limit" value="<?php echo $occurence_limit; ?>"/></td>
-			</tr>
+		<tr>
+			<th colspan="3" class="left">
+				<input onclick="javascript: jQuery('.hec_advanced').toggle();" type="button" value="Toggle Advanced" class="button"/>
+				<input type="submit" name="hec_add" value="Add New Pattern" class="button"/>
+			</th>
+		</tr>
+		<?php 
 		
-			<tr>
-				<th><label for="hec_day_limit">Day Limit</label></th>
-				<td><input name="hec_day_limit" type="text" id="hec_day_limit" value="<?php echo $day_limit; ?>"/></td>
-			</tr>
+		echo '</tbody></table>';
 		
-		</table>
-		
-		<table>
-		<?php
-		
-		if (isset($event['settings']))
-			foreach ($event['settings'] as $id => $settings)
-				self::event_settings($id, $settings, $day_limit);
-		
-		self::event_settings(uniqid(), array(), $day_limit);
-
-		?> </table> <?php 
+		//self::event_patterns(uniqid(), array(), $number);
 	}
+	
+	static function callback_occurences_metabox() {
+		global $post, $hec_weekdays, $hec_months, $hec_year_types, $hec_options, $wp_query;//$hec_occurence_limit, $hec_day_limit;
+		// Use nonce for verification
+		wp_nonce_field( 'hec_update_occurences', 'hec_occurences_mb_nonce' );
+	
+		$data = get_post_meta($post->ID, '_hec_event', true);
+		$event = ($data == '') ? array() : $data;
+		$show_upcoming = (isset($event['show_upcoming'])) ? $event['show_upcoming'] : $hec_options['show_upcoming'];
+		$upcoming_title = (isset($event['upcoming_title'])) ? $event['upcoming_title'] : $hec_options['upcoming_title'];
+		$day_limit = (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'];
+		$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
+			
+		$old_query = $wp_query;
+		$wp_query = new WP_Query(
+		array(
+			'post__in' => array( $post->ID ),
+			'hec_show_all' => true,
+			'post_type' => 'any',
+			'hec_date_time' => array(hec::sql_date_time(), hec::sql_date_time($day_limit)),
+			'posts_per_page' => $occurence_limit) );
+		
+		//$occurences = hec::get_occurences(array('day_limit' => $day_limit, 'show_hidden' => true), /*unixtojd(),  $day_limit, true, false, true,*/ array('post__in' => array($post->ID)));
+		// Use nonce for verification
+		//wp_nonce_field( plugin_basename( __FILE__ ), 'myplugin_noncename' );
+		?>
+				<table>
+					<tr>
+						<td colspan="2">
+							<input name="hec_show_upcoming" type="checkbox" id="hec_show_upcoming" <?php if ($show_upcoming) echo 'checked="on"'; ?>/>
+							<label for="hec_show_upcoming">Show Upcoming Occurences</label>
+						</td>
+					</tr>
+				
+					<tr>
+						<td><label for="hec_upcoming_title">Upcoming Title</label></td>
+						<td><input size="60" name="hec_upcoming_title" type="text" id="hec_upcoming_title" value="<?php echo $upcoming_title; ?>"/></td>
+					</tr>
+				
+					<tr>
+						<td><label for="hec_occurence_limit">Occurence Limit</label></td>
+						<td><input name="hec_occurence_limit" type="text" id="hec_occurence_limit" value="<?php echo $occurence_limit; ?>"/></td>
+					</tr>
+			
+					<tr>
+						<td><label for="hec_day_limit">Day Limit</label></td>
+						<td><input name="hec_day_limit" type="text" id="hec_day_limit" value="<?php echo $day_limit; ?>"/></td>
+					</tr>
+			
+				</table>
+				<?php if (have_posts()) : ?>
+				
+				<style type="text/css">
+					.hec_table {
+						border-width: 1px;
+						background-color: #F9F9F9; 
+						border-color: #DFDFDF; 
+						border-spacing: 0; 
+						border-style: solid;
+						margin-top: 8px;
+						border-radius: 3px 3px 3px 3px;
+					}
+					
+					.hec_table thead, .hec_table tfoot {
+						background-color: #F1F1F1;
+					}
+					.hec_table th, .hec_table td {
+						padding: 8px;
+					}
+				</style>
+				
+				<table class="hec_table">
+					<thead>
+						<tr>
+							<th>Show</th>
+							<th>Date</th>
+							<th>Pattern</th>
+							<th>Notes</th>
+						</tr>
+					</thead>
+					
+					<tfoot>
+						<tr>
+							<th>Show</th>
+							<th>Date</th>
+							<th>Pattern</th>
+							<th>Notes</th>
+						</tr>
+					</tfoot>
+			
+					<tbody><?php
+					$i = 0;
+					while (have_posts())  {
+						the_post();
+						$label = $post->hec_id . ',' . substr($post->hec_start, 0, 10);
+						//$jd = unixtojd($occurence->start);
+						echo '<tr';
+						if ($i % 2 == 0) echo ' class="alternate"';
+						$i++;
+						echo '>';
+						echo '<td><input name="hec_patterns[' . $post->hec_id . '][show][' . $label . ']" type="checkbox"'. (($post->hec_hide) ? '' : ' checked="yes"') .'/></td>';
+						echo '<td>' . hec::date(strtotime($post->hec_start)) . '</td>';						
+						echo '<td>#' . (array_search($post->hec_id, array_keys($event['patterns']))+1) . '</td>';
+						//echo '<td>' .  $event['patterns'][$post->hec_id]['subtitle'] . '</td>';
+						echo '<td><input size="60" name="hec_patterns[' . $post->hec_id . '][notes][' . $label . ']" type="text" value="' . $post->hec_notes . '"/></td></tr>'; }
+						?>
+					</tbody>
+				</table>
+				<?php else: ?>
+				<p>No occurences in the next <?php echo $day_limit; ?> days.</p>
+				<?php endif;  
+				$wp_query = $old_query;
+				wp_reset_postdata();
+		}
+		
 		
 }
 
