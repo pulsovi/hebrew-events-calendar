@@ -238,6 +238,7 @@ class hec_hooks
 				
 		delete_post_meta($post_ID, '_hec_hide');
 		delete_post_meta($post_ID, '_hec_notes');
+		delete_post_meta($post_ID, '_hec_title');
 	
 		$data = get_post_meta($post_ID, '_hec_event', true);
 		$old_event = ($data == '') ? array() : $data;
@@ -263,7 +264,7 @@ class hec_hooks
 			{
 				$result = array();
 				
-				//if ($pattern['subtitle'] != '') $result['subtitle'] = $pattern['subtitle'];
+				if ($pattern['title'] != '') add_post_meta($post_ID, '_hec_title', $id . ',' . $pattern['title']);
 				if ($pattern['start_date'] != '') $result['start_date'] = unixtojd(strtotime($pattern['start_date']));
 				if ($pattern['stop_date'] != '') $result['stop_date'] = unixtojd(strtotime($pattern['stop_date']));
 				if ($pattern['weekday'] != '') $result['weekday'] = (int)$pattern['weekday'];
@@ -280,11 +281,12 @@ class hec_hooks
 				$t = rtrim(trim(strtoupper($pattern['time'])), 'M');
 				if ($t != '')
 				{
-					if (substr($t, -1) != 'A' && substr($t, -1) != 'P') $result['time_offset'] = true;
+					if (substr($t, -1) != 'A' && substr($t, -1) != 'P')
+						$result['time_offset'] = true;
 					$parts = explode(':', rtrim($t, 'AP'));
 					$result['time'] = ($result['time_offset']) ?
 					((count($parts) == 1) ? (int)$parts[0] : ((int)$parts[0]*60+(((int)$parts[0] < 0) ? -(int)$parts[1] : (int)$parts[1]))) :
-					(((count($parts) == 1) ? (int)$parts[0]*60 : ((int)$parts[0]*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
+					(((count($parts) == 1) ? (int)($parts[0] % 12)*60 : ((int)($parts[0] % 12)*60+(int)$parts[1])) + ((substr($t, -1) == 'P') ? 720 : 0));
 					if (substr($t,0,2) == '-0') $result['time'] = -$result['time'];
 				}
 		
@@ -336,8 +338,13 @@ class hec_hooks
 		}
 		
 		if (isset($_REQUEST['hec_add']))
-			$event['patterns'][uniqid()] = array();//($_REQUEST['hec_new_subtitle'] == '') ? array() : array('subtitle' => $_REQUEST['hec_new_subtitle']);
-	
+		{
+			$id = uniqid();
+			$event['patterns'][$id] = array('temp' => true);
+			if ($_REQUEST['hec_new_title'] != '')
+				add_post_meta($post_ID, '_hec_title', $id . ',' . $_REQUEST['hec_new_title']);
+		}
+			
 		if (empty($event))
 			delete_post_meta($post_ID, '_hec_event');
 		else
@@ -381,6 +388,7 @@ class hec_hooks
 					$wp_query = new WP_Query(
 							array('post__in' => array($post->ID),
 							'post_type' => 'any',
+							'post_status' => $post->post_status,
 							'hec_date_time' => array(hec::sql_date_time(), hec::sql_date_time((isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'])),
 							'posts_per_page' => $occurence_limit) );
 							
@@ -453,9 +461,10 @@ class hec_hooks
 			hec::calculate_all(unixtojd(strtotime($datetime[0])), unixtojd(strtotime($datetime[1])));
 			
 			$clauses['distinct'] = '';
-			$clauses['fields'] .= ", LEFT(mt_start.meta_value, 13) AS hec_id, SUBSTR(mt_start.meta_value, 15) AS hec_start, SUBSTR(mt_notes.meta_value, 26) AS hec_notes, SUBSTR(mt_stop.meta_value, 26) AS hec_stop, mt_hide.meta_value AS hec_hide";
+			$clauses['fields'] .= ", LEFT(mt_start.meta_value, 13) AS hec_id, SUBSTR(mt_start.meta_value, 15) AS hec_start, SUBSTR(mt_notes.meta_value, 26) AS hec_notes, SUBSTR(mt_title.meta_value, 15) AS hec_title, SUBSTR(mt_stop.meta_value, 26) AS hec_stop, mt_hide.meta_value AS hec_hide";
 			$clauses['join'] .= "
 				INNER JOIN {$wpdb->postmeta} AS mt_start ON ({$wpdb->posts}.ID = mt_start.post_id)
+				LEFT JOIN {$wpdb->postmeta} AS mt_title ON (mt_start.post_id = mt_title.post_id AND mt_title.meta_key = '_hec_title' AND LEFT(mt_title.meta_value, 13) = LEFT(mt_start.meta_value, 13))
 				LEFT JOIN {$wpdb->postmeta} AS mt_notes ON (mt_start.post_id = mt_notes.post_id AND mt_notes.meta_key = '_hec_notes' AND LEFT(mt_notes.meta_value, 24) = LEFT(mt_start.meta_value, 24))
 				LEFT JOIN {$wpdb->postmeta} AS mt_stop ON (mt_start.post_id = mt_stop.post_id AND mt_stop.meta_key = '_hec_stop' AND LEFT(mt_stop.meta_value, 24) =  LEFT(mt_start.meta_value, 24))
 				LEFT JOIN {$wpdb->postmeta} AS mt_hide ON (mt_start.post_id = mt_hide.post_id AND mt_hide.meta_key = '_hec_hide' AND LEFT(mt_hide.meta_value, 24) =  LEFT(mt_start.meta_value, 24))";
@@ -467,7 +476,7 @@ class hec_hooks
 				" AND CAST(SUBSTR(mt_start.meta_value, 15) AS DATETIME) BETWEEN '{$datetime[0]}' AND '{$datetime[1]}'";
 			if (!$wp_query->get('hec_show_all'))
 				$clauses['where'] .= " AND mt_hide.meta_key IS NULL";
-			$clauses['groupby'] = "SUBSTR(mt_start.meta_value, 15), {$wpdb->posts}.post_title";
+			$clauses['groupby'] = "mt_start.meta_value, {$wpdb->posts}.post_title";
 			$clauses['orderby'] = 'SUBSTR(mt_start.meta_value, 15)';
 		}
 		
@@ -707,11 +716,19 @@ class hec {
 			//$id = 'vevent-' . $post->ID . '-' . substr($post->hec_start, 0, 10);
 			//echo "<a class=\"colorbox-link\" href=\"#$id\">";
 			if ($link) $r .= '<a href="' . get_permalink() . '">';
+			$event = get_post_meta($post->ID, '_hec_event');
+			
 			if ($title) {
-				$r .= get_the_title();
+				$r .= (is_null($post->hec_title)) ? get_the_title() : $post->hec_title;
 				if (!is_null($post->hec_notes)) $r .= " ({$post->hec_notes})";
 			}
-			else if (!is_null($post->hec_notes)) $r .= $post->hec_notes;
+			else {
+				if (!is_null($post->hec_title)) $r .= $post->hec_title;
+				if (!is_null($post->hec_title) && !is_null($post->hec_notes))
+					$r .= ' (' . $post->hec_notes . ')';
+				elseif (!is_null($post->hec_notes))
+					$r .= $post->hec_notes;
+			}
 			if ($link) $r .= '</a>';
 			/*echo '<div style="display:none">';
 			 echo hec::get_the_event();
@@ -903,7 +920,7 @@ class hec {
 				$jweek0 = ceil($jday0/7);
 				$jleap0 = self::is_jewish_leap($jyear0);
 				$jtype0 = self::get_year_type($jyear0);
-				if (!$jleap0 && ($jmonth0 == 6)) $jmonth0 = 7;
+				if (!$jleap0 && ($jmonth0 == 6)) $jmonth0 = 7; // Adar II is the real Adar not Adar I
 			
 				$j = explode('/', jdtojewish($julian_date+1));
 				$jmonth1 = (int)$j[0];
@@ -912,7 +929,7 @@ class hec {
 				$jweek1 = ceil($jday1/7);
 				$jleap1 = self::is_jewish_leap($jyear1);
 				$jtype1 = self::get_year_type($jyear1);
-				if (!$jleap1 && ($jmonth1 == 6)) $jmonth1 = 7;
+				if (!$jleap1 && ($jmonth1 == 6)) $jmonth1 = 7; // Adar II is the real Adar not Adar I
 			
 				$midnight = mktime(0, 0, 0, $month, $day, $year);
 				$midnight0 = mktime(0, 0, 0, $month0, $day0, $year0);
@@ -982,7 +999,7 @@ class hec {
 				if (!$j0 && !$j1) continue;
 		
 				$hebrew = ((isset($pattern['time_offset']) || !isset($pattern['time'])) && (count(preg_grep('/^(day|month)_/', array_keys($pattern))) > 0 || $pattern['weekday'] < 0 || ($pattern['month'] < 0 && isset($pattern['day']))));
-				$offset = ((is_null($pattern['time'])) ? 0 : ((int)$pattern['time']*60));
+				$offset = ((!isset($pattern['time'])) ? 0 : ((int)$pattern['time']*60));
 		
 				if ($pattern['sunrise'] && $hebrew) $j1 = false;
 				if (!$j0 && !$j1) continue;
@@ -1116,7 +1133,7 @@ class hec_options_page {
 
 class hec_metaboxes {
 	
-	static function event_pattern($id, $pattern, $number) {
+	static function event_pattern($id, $pattern, $number, $title) {
 		global $post, $wp_query, $hec_year_types, $hec_months, $hec_weekdays;
 
 		?>
@@ -1125,6 +1142,11 @@ class hec_metaboxes {
 			<th colspan="3">Pattern #<?php echo $number; ?></th>
 		</tr>
 	
+		<tr>
+			<td class="left"><label for="hec_title_<?php echo $id; ?>">Title</label></td>
+			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][title]" type="text" id="hec_title_<?php echo $id; ?>" value="<?php echo $title; ?>"/></td>
+		</tr>
+
 		<tr>
 			<td class="left"><label for="hec_time_<?php echo $id; ?>">Time</label></td>
 			<td colspan="2"><input name="hec_patterns[<?php echo $id; ?>][time]" type="text" id="hec_time_<?php echo $id; ?>" value="<?php echo hec_format_time($pattern); ?>"/></td>
@@ -1261,6 +1283,10 @@ class hec_metaboxes {
 	
 		$data = get_post_meta($post->ID, '_hec_event', true);
 		$event = ($data == '') ? array() : $data;
+		
+		$titles = array();
+		foreach (get_post_meta($post->ID, '_hec_title') as $title)
+			$titles[substr($title, 0, 13)] = substr($title, 14);
 	
 		$day_limit = (isset($event['day_limit'])) ? $event['day_limit'] : $hec_options['day_limit'];
 		$occurence_limit = (isset($event['occurence_limit'])) ? $event['occurence_limit'] : $hec_options['occurence_limit'];
@@ -1287,7 +1313,7 @@ class hec_metaboxes {
 			foreach ($event['patterns'] as $id => $pattern)
 			{
 				$advanced = $advanced || count(preg_grep('/^(start_date|stop_date|latitude|longitude|sunset_zenith|sunrise_zenith|day_|month_)/', array_keys($pattern))) > 0;
-				self::event_pattern($id, $pattern, $number);
+				self::event_pattern($id, $pattern, $number, $titles[$id]);
 				$number++;
 			}
 			if (!$advanced) {
@@ -1299,6 +1325,17 @@ class hec_metaboxes {
 		<tr>
 			<th colspan="3" class="left">
 				<input onclick="javascript: jQuery('.hec_advanced').toggle();" type="button" value="Toggle Advanced" class="button"/>
+			</th>
+		</tr>
+		<tr>
+			<th colspan="3">Add New Pattern:</th>
+		</tr>
+		<tr>
+			<td class="left"><label for="hec_new_title">Title (optional)</label></td>
+			<td colspan="2"><input name="hec_new_title" type="text" id="hec_new_title"/></td>
+		</tr>
+		<tr>
+			<th colspan="3" class="left">
 				<input type="submit" name="hec_add" value="Add New Pattern" class="button"/>
 			</th>
 		</tr>
@@ -1383,8 +1420,9 @@ class hec_metaboxes {
 					<thead>
 						<tr>
 							<th>Show</th>
-							<th>Date</th>
+							<th>Date/Time</th>
 							<th>Pattern</th>
+							<th>Subtitle</th>
 							<th>Notes</th>
 						</tr>
 					</thead>
@@ -1392,8 +1430,9 @@ class hec_metaboxes {
 					<tfoot>
 						<tr>
 							<th>Show</th>
-							<th>Date</th>
+							<th>Date/Time</th>
 							<th>Pattern</th>
+							<th>Subtitle</th>
 							<th>Notes</th>
 						</tr>
 					</tfoot>
@@ -1409,9 +1448,9 @@ class hec_metaboxes {
 						$i++;
 						echo '>';
 						echo '<td><input name="hec_patterns[' . $post->hec_id . '][show][' . $label . ']" type="checkbox"'. (($post->hec_hide) ? '' : ' checked="yes"') .'/></td>';
-						echo '<td>' . hec::date(strtotime($post->hec_start)) . '</td>';						
+						echo '<td>' . hec::date_time(strtotime($post->hec_start)) . '</td>';						
 						echo '<td>#' . (array_search($post->hec_id, array_keys($event['patterns']))+1) . '</td>';
-						//echo '<td>' .  $event['patterns'][$post->hec_id]['subtitle'] . '</td>';
+						echo '<td>' .  $post->hec_title . '</td>';
 						echo '<td><input size="60" name="hec_patterns[' . $post->hec_id . '][notes][' . $label . ']" type="text" value="' . $post->hec_notes . '"/></td></tr>'; }
 						?>
 					</tbody>
