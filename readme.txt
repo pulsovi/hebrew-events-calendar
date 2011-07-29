@@ -86,6 +86,9 @@ None yet
 
 == Upgrade Notice ==
 
+= 0.4
+Added multiple events in post/pages
+
 = 0.3
 Upcoming Events widget & Upcoming occurences on pages now work.
 
