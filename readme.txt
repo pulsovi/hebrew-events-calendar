@@ -2,7 +2,7 @@
 Contributors: Yitzi
 Donate link: 
 Tags: events, calendar, hebrew, jewish
-Requires at least: 3.0
+Requires at least: 3.1
 Tested up to: 3.1
 Stable tag: trunk
 
@@ -27,7 +27,7 @@ TODO:
 
 This section describes how to install the plugin and get it working.
 
-1. Upload `hec.php` to the `/wp-content/plugins/hec` directory
+1. Upload `hebrew-events-calendar.zip` contentx to the `/wp-content/plugins/hebrew-events-calendar` directory
 2. Activate the plugin through the 'Plugins' menu in WordPress
 3. Goto the options page in the settings admin section and set the latitude/longitude so Hebrew dates will be calculated correctly.
 
@@ -40,6 +40,10 @@ of the fields in this metabox see the FAQ.
 = Where is the documentation =
 
 Still working on it. For now you are on your own. Until then here is a short description of the fields in the edit post meta boxes:
+
+= How do I get Holidays & Parashot? =
+
+Import http://templeisraelvaldosta.org/files/2011/07/holidays-diaspora.xml using WordPress import WXR for Diapora pages. More to come.
 
 Hebrew Event Metabox
 
@@ -65,6 +69,13 @@ can just uncheck that specific occurence without deleting the event.
 None yet
 
 == Changelog ==
+
+= 0.4
+* Event calculation now integrated in WP_Query. For instance, WP_Query('hec_date' => array('2011-01-01', '2011-01-07')) gets events in the first 7 days of January.
+* Multiple event pattern's can be attached to a post/page
+* Lat/Long/Zenith can now be overriden in events
+* Added style support for event lists
+* Began cleaning up code
 
 = 0.3
 * Fixed pagination query problem in hec_get_occurences
