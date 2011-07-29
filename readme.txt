@@ -41,10 +41,6 @@ of the fields in this metabox see the FAQ.
 
 Still working on it. For now you are on your own. Until then here is a short description of the fields in the edit post meta boxes:
 
-= How do I get Holidays & Parashot? =
-
-Import http://templeisraelvaldosta.org/files/2011/07/holidays-diaspora.xml using WordPress import WXR for Diapora pages. More to come.
-
 Hebrew Event Metabox
 
 * Time: This is either an absolute time (12:24 pm) or a relative time offset (-0:18 = minus eighteen minutes, +2:00 = plus two hours)
@@ -63,6 +59,10 @@ Hebrew Event Occurences Metabox
 
 Here notes can be attached to upcoming occurences and occurences can hidden. If a reoccuring event instance is cancelled you
 can just uncheck that specific occurence without deleting the event.
+
+= How do I get Holidays & Parashot? =
+
+Import http://templeisraelvaldosta.org/files/2011/07/holidays-diaspora.xml using WordPress import WXR for Diapora pages. More to come.
 
 == Screenshots ==
 
