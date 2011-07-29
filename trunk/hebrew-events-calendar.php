@@ -578,13 +578,13 @@ class hec_shortcodes {
 					'stop_format' => null,
 					 'multiday_stop_format' => null),
 				$atts));
-		
+
 		$old_query = $wp_query;
 		$wp_query = new WP_Query(
-		array(
-			'post_type' => $hec_options['post_types'],
-			'hec_date_time' => array($start . ' 00:00:00', hec::sql_date($days, strtotime($start)) . ' 23:59:59'),
-			'nopaging' => true) );
+			array(
+				'post_type' => $hec_options['post_types'],
+				'hec_date_time' => array($start . ' 00:00:00', hec::sql_date($days, strtotime($start)) . ' 23:59:59'),
+				'nopaging' => true) );
 		
 		if (have_posts())
 			$r = hec::get_the_event_list($start_format, $stop_format, $multiday_stop_format);
@@ -594,7 +594,7 @@ class hec_shortcodes {
 		$wp_query = $old_query;
 		wp_reset_postdata();
 		
-		return $r;		
+		return $r;
 	}
 	
 	static function calendar($atts, $content = null) {
