@@ -483,7 +483,7 @@ class hec_hooks
 			while (have_posts())  {
 				the_post();
 				echo "BEGIN:VEVENT\n";
-				echo "UID:" . $post->ID . '-' . substr($post->hec_start, 0, 10) . "\n";
+				echo "UID:" . $post->ID . '-' . $post->hec_id . '-' . substr($post->hec_start, 0, 10) . "\n";
 				echo gmstrftime("DTSTART:%Y%m%dT%H%M00Z\n", strtotime($post->hec_start));
 				if (!is_null($post->hec_stop)) echo gmstrftime("DTEND:%Y%m%dT%H%M00Z\n", strtotime($post->hec_stop));
 				echo "SUMMARY;CHARSET=UTF-8:" . self::encode_text_ics(hec::get_the_summary()) . "\n";
@@ -712,7 +712,7 @@ class hec {
 			hec::the_dtstart();
 			hec::the_dtend();
 			hec::the_url();
-			echo ((unixtojd(strtotime($post->hec_start)) < $jd+$i) ? (($jd+$i == unixtojd(strtotime($post->hec_stop))) ? 'Until ' . hec::time(strtotime($post->hec_stop)) : 'All day') : hec::time(strtotime($post->hec_start))) . ' — ';
+			echo ((unixtojd(strtotime($post->hec_start)) < $jd+$i) ? (($jd+$i == unixtojd(strtotime($post->hec_stop))) ? 'Until ' . hec::time(strtotime($post->hec_stop)) : 'All day') : hec::time(strtotime($post->hec_start))) . ' ï¿½ ';
 			echo '<a href="' . get_permalink() . '">';
 			hec::the_summary('span', true);
 			echo '</a>';
@@ -774,7 +774,7 @@ class hec {
 	
 	static function get_the_summary() {
 		global $post;
-		$value = get_the_title();
+		$value = (is_null($post->hec_title)) ? get_the_title() : $post->hec_title;
 		if (!is_null($post->hec_notes))
 			$value .= ' (' . $post->hec_notes . ')';
 		return $value;

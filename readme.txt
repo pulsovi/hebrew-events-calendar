@@ -3,7 +3,7 @@ Contributors: Yitzi
 Donate link: 
 Tags: events, calendar, hebrew, jewish
 Requires at least: 3.1
-Tested up to: 3.1
+Tested up to: 3.2.1
 Stable tag: trunk
 
 An events calendar that allows easy entry of reoccuring events with either Gregorian or Jewish dates.
