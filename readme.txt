@@ -3,7 +3,7 @@ Contributors: Yitzi
 Donate link: 
 Tags: events, calendar, hebrew, jewish
 Requires at least: 3.1
-Tested up to: 3.2.1
+Tested up to: 3.8
 Stable tag: trunk
 
 An events calendar that allows easy entry of reoccuring events with either Gregorian or Jewish dates.
@@ -69,6 +69,9 @@ Import http://templeisraelvaldosta.org/files/2011/07/holidays-diaspora.xml using
 None yet
 
 == Changelog ==
+
+= 0.5
+* Fixed calendar shortcode slowdown
 
 = 0.4
 * Event calculation now integrated in WP_Query. For instance, WP_Query('hec_date' => array('2011-01-01', '2011-01-07')) gets events in the first 7 days of January.
